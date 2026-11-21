@@ -103,22 +103,36 @@ export interface AppUpdateInfo {
   releasedAt?: string
 }
 
-/** 正式的发行地址：原生包内置的版本号要和这里的 app-update.json 比对 */
-export const RELEASE_BASE = 'https://cdn.jsdelivr.net/gh/Tera-Dark/gzzk-trainer@main/app/public/'
+/**
+ * 正式的发行地址，按可信度排序：原生包内置的版本号要拿去和这里的 app-update.json 比对。
+ * Pages 那份 600 秒缓存；jsDelivr 会对 `@main` 解析出的 commit 缓存十几小时，只剩兜底价值。
+ */
+export const RELEASE_BASES = [
+  'https://tera-dark.github.io/gzzk-trainer/',
+  'https://cdn.jsdelivr.net/gh/Tera-Dark/gzzk-trainer@main/app/public/',
+]
+
+/** 兼容旧引用，指向首选源 */
+export const RELEASE_BASE = RELEASE_BASES[0]
 
 export async function fetchAppUpdate(): Promise<AppUpdateInfo | null> {
   // 先问线上发行地址（原生包内部只有副本，必须去线上比对），再退回当前内容源
-  const bases = [RELEASE_BASE, activeBase()]
-  for (const base of bases) {
-    try {
-      const res = await fetch(`${base}app-update.json?t=${Date.now()}`, { cache: 'no-store' })
-      if (!res.ok) continue
-      return (await res.json()) as AppUpdateInfo
-    } catch {
-      /* 试下一个来源 */
-    }
-  }
-  return null
+  const bases = [...RELEASE_BASES, activeBase()]
+  let best: AppUpdateInfo | null = null
+  await Promise.all(
+    bases.map(async (base) => {
+      try {
+        const res = await fetch(`${base}app-update.json?t=${Date.now()}`, { cache: 'no-store' })
+        if (!res.ok) return
+        const info = (await res.json()) as AppUpdateInfo
+        if (!info?.version) return
+        if (!best || isNewerVersion(info.version, best.version)) best = info
+      } catch {
+        /* 试下一个来源 */
+      }
+    })
+  )
+  return best
 }
 
 /** 语义化版本比较：remote 比 local 新则返回 true */
