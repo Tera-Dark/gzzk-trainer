@@ -61,7 +61,10 @@ export function QuizScreen({ title, subtitle, items, mode, startIndex = 0, onExi
   const submit = (grade: Grade) => {
     if (!item || graded) return
     const first = !retried.current.has(item.q.id + ':done')
-    db.record(item.q.id, item.paper.subject, item.paper.id, grade, mode, Date.now() - t0.current, tag ?? item.q.tags?.[0])
+    // 跳过≠做错：不写记录，否则“错题重排后跳过”会把刚错的题从错题本里抹掉
+    if (grade !== 'skip') {
+      db.record(item.q.id, item.paper.subject, item.paper.id, grade, mode, Date.now() - t0.current, tag ?? item.q.tags?.[0])
+    }
     retried.current.add(item.q.id + ':done')
     setGraded(grade)
     setTally((t) => ({ ...t, [grade]: t[grade] + 1 }))
@@ -254,7 +257,7 @@ export function QuizScreen({ title, subtitle, items, mode, startIndex = 0, onExi
             >
               跳过
             </button>
-            {item.q.type === 'choice' ? (
+            {item.q.type === 'choice' && item.q.answerKey ? (
               <button
                 className="btn primary"
                 style={{ flex: 1 }}
@@ -265,7 +268,7 @@ export function QuizScreen({ title, subtitle, items, mode, startIndex = 0, onExi
               >
                 不会，看解析
               </button>
-            ) : (
+            ) : revealed ? null : (
               <button className="btn primary" style={{ flex: 1 }} onClick={() => setRevealed(true)}>
                 不会，直接看答案
               </button>

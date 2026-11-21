@@ -191,6 +191,10 @@ def repair_answer_key(q: dict, letters: str = "ABCDE") -> None:
     """选择题答案字母兜底：分组答案 / 故选X / 故答案为X"""
     if q["type"] != "choice" or q.get("answerKey"):
         return
+    bare = (q.get("answer") or "").strip().upper()
+    if re.fullmatch(rf"[{letters}]", bare):
+        q["answerKey"] = bare
+        return
     pools = [q.get("answer") or "", q.get("analysis") or ""]
     for text in pools:
         flat = re.sub(r"[\*$]", "", text)
@@ -204,13 +208,171 @@ def repair_answer_key(q: dict, letters: str = "ABCDE") -> None:
             return
 
 
+# 只有这些考点会进 tags.json / 学习路径：RULES 里人工定过的口径，稳定、能凑成一关
+CANON = {s: {t for _, t in rules} for s, rules in RULES.items()}
+# 题型名不是考点，别让它混进路径
+GENERIC = {"选择题", "填空题", "解答题", "综合题", "单选", "多选", "判断"}
+# 大题名 → 考点（解析里没写“本题考查……”时兜底）
+SECTION_CANON: dict[str, dict[str, str]] = {
+    "english": {
+        "阅读": "阅读理解",
+        "阅读理解": "阅读理解",
+        "阅读填空": "阅读理解",
+        "完形填空": "完形填空",
+        "语法选择": "语法选择",
+        "语法填空": "语法填空",
+        "单词拼写": "单词拼写",
+        "完成句子": "句型转换",
+        "书面表达": "书面表达",
+        "写作": "书面表达",
+    },
+    "chinese": {
+        "阅读与鉴赏": "现代文阅读·赏析",
+        "现代文阅读": "现代文阅读·赏析",
+    },
+}
+
+BLANK = "＿"
+
+
+def blank_fill(n: int) -> str:
+    """留空用原卷的下划线写法，Markdown 里不会变成下划线字符，视觉上就是一条空线"""
+    return "<u>" + "　" * max(2, min(6, n)) + "</u>"
+U_TAG = re.compile(r"<u>(.*?)</u>", re.S)
+TONE = set("āáǎàēéěèīíǐìōóǒòūúǔùǖǘǚǜüê")
+PINYIN = re.compile(r"(?<=[\u4e00-\u9fff])([A-Za-zāáǎàēéěèīíǐìōóǒòūúǔùǖǘǚǜêü]{2,8})(?=[\u4e00-\u9fff，。、；：）])")
+EMPTY_TABLE_LINE = re.compile(r"^\s*\|[\s|]*$")
+MULTI_PAT = re.compile(r"正确的两项|正确的三项|两个或两个以上|不止一项|不定项")
+# 抽取时混进来的考场须知/答题卡说明，行首命中就整条丢掉
+JUNK_STEM = re.compile(
+    r"^\s*(?:答题前|答卷前|考生务必|考生必须保持|考试结束|选择题每小题|非选择题(?:答案)?必须|答案必填涂)"
+)
+# 解析原文被抽成题干的（“考查……”“由后一句话……”）
+ANALYSIS_STEM = re.compile(r"^\s*(?:考查|【分析】|【解答】|【详解】|分析[:：]|解答[:：]|由[前后]文|由[前后]一句)")
+# 只剩选项壳、题干本体没抽出来的题
+OPT_LETTER = re.compile(r"(?<![A-Za-z])[A-D]\s*[.．、]?\s")
+CJK = re.compile(r"[\u4e00-\u9fff]")
+
+
+def _norm(s: str) -> str:
+    return re.sub(r"[\s　，,。．.；;：:、（）()【】\[\]<>《》“”‘’\"'·•]", "", s or "")
+
+
+def strip_empty_tables(s: str) -> str:
+    """去掉只剩竖线的空表格行（原卷表格被解析丢内容，留着只会渲染成空框）"""
+    if not s or "|" not in s:
+        return s
+    return "\n".join(ln for ln in s.split("\n") if not EMPTY_TABLE_LINE.match(ln))
+
+
+def scrub_pinyin(s: str) -> str:
+    """语文材料里残留的注音（流lián / 糟tà）会直接把答案递到用户眼前，换成空格占位"""
+    if not s:
+        return s
+
+    def repl(m: re.Match) -> str:
+        tok = m.group(1)
+        return blank_fill(1) if any(ch in TONE for ch in tok) else tok
+
+    return PINYIN.sub(repl, s)
+
+
+def scrub_question(q: dict) -> int:
+    """题干里被填好的答案（<u>百草丰茂</u>、正确的一项是 <u>C</u>）擦成空格"""
+    stem = q.get("stem") or ""
+    if "<u>" not in stem and "<u>" not in (q.get("stemHtml") or ""):
+        return 0
+    key = (q.get("answerKey") or "").strip().upper()
+    ans = _norm(q.get("answer") or "") + _norm(q.get("answerHtml") or "")
+    # 答案字段空着或只剩一个字母时，题干里的下划线内容肯定是答案本身（化学 2024 实验题就是整份答案被填回题干）
+    weak = len(ans) <= 2
+    hits = 0
+
+    def repl(m: re.Match) -> str:
+        nonlocal hits
+        inner = _norm(m.group(1))
+        if not inner:
+            return m.group(0)
+        if len(inner) >= 2 and inner in ans:
+            hits += 1
+            return blank_fill(len(inner))
+        if len(inner) == 1 and inner.upper() in "ABCDE" and key and inner.upper() == key:
+            hits += 1
+            return "（　）"
+        if weak and re.search(r"[\w\u4e00-\u9fff]", inner):
+            hits += 1
+            return blank_fill(len(inner))
+        return m.group(0)
+
+    for fld in ("stem", "stemHtml"):
+        src = q.get(fld)
+        if src and "<u>" in src:
+            q[fld] = U_TAG.sub(repl, src)
+    return hits
+
+
+ANSWER_MAP = re.compile(r"\s*(?:A\s*[.．]\s*A\s+B\s*[.．]\s*B\s+C\s*[.．]\s*C\s+D\s*[.．]\s*D)\s*$")
+
+
+def scrub_option_noise(q: dict) -> None:
+    """选项尾部的表格竖线和“A. A B. B C. C D. D”答案对照行"""
+    for o in q.get("options") or []:
+        for fld in ("md", "html"):
+            v = o.get(fld)
+            if not v:
+                continue
+            o[fld] = re.sub(r"[\s|]+$", "", ANSWER_MAP.sub("", v))
+
+
+def mark_multi(q: dict) -> None:
+    """“正确的两项”这类多选题：全库的 answerKey 都是单字母，硬判就是判错，改成自评"""
+    if q.get("type") != "choice":
+        return
+    head = re.sub(r"<[^>]+>", "", q.get("stem") or "")[:200]
+    if MULTI_PAT.search(head):
+        q["answerKey"] = None
+        q["multi"] = True
+    else:
+        q.pop("multi", None)
+
+
+def drop_junk(paper: dict) -> list[str]:
+    """丢掉抽取时混进来的“假题”：考场须知、没有题干的空壳、只剩选项字母的残题"""
+    keep: list[dict] = []
+    dropped: list[str] = []
+    for q in paper["questions"]:
+        stem = (q.get("stem") or "").strip()
+        opts = [o for o in (q.get("options") or []) if (o.get("md") or "").strip()]
+        shell = (
+            not q.get("contextId")
+            and len(stem) < 200
+            and not CJK.search(stem)
+            and not re.search(r"[?？]", stem)
+            and len(OPT_LETTER.findall(stem)) >= 3
+        )
+        junk = (
+            (bool(stem) and bool(JUNK_STEM.match(stem)))
+            or (bool(stem) and bool(ANALYSIS_STEM.match(stem)))
+            or (not stem and not q.get("contextId"))
+            or shell
+            or (q.get("type") == "choice" and len(opts) < 2)
+        )
+        if junk:
+            dropped.append(q["id"])
+        else:
+            keep.append(q)
+    paper["questions"] = keep
+    return dropped
+
+
 def tags_for(q: dict, subject: str = "math") -> list[str]:
     text = (q.get("analysis") or "") + "\n" + (q.get("answer") or "")
+    canon = CANON.get(subject, set())
     found: list[str] = []
     for m in TAG_PAT.finditer(text):
         phrase = m.group(1) or m.group(2) or m.group(3) or ""
         for t in split_tags(phrase):
-            if t not in found:
+            if t in canon and t not in found:
                 found.append(t)
         if len(found) >= 3:
             break
@@ -218,29 +380,73 @@ def tags_for(q: dict, subject: str = "math") -> list[str]:
         found = rule_tags(subject, q)
     if not found:
         sec = clean_section(q.get("section") or "")
-        if sec:
-            found.append(sec)
-    if not found:
-        found.append({"choice": "选择题", "blank": "填空题", "long": "解答题"}.get(q["type"], "综合"))
-    return found[:3]
+        mapped = SECTION_CANON.get(subject, {}).get(sec)
+        if mapped:
+            found = [mapped]
+        elif sec and "阅读" in sec:
+            found = ["现代文阅读·赏析"] if subject == "chinese" else ["阅读理解"]
+    out = [t for t in dict.fromkeys(found) if t and t not in GENERIC]
+    return out[:3]
+
+
+def mark_incomplete(papers: list[dict]) -> list[str]:
+    """题量明显少于同科正常年份的卷子标成残缺：可以做练习，但不该拿去估分"""
+    # 以最近三年的题量口径为基准：中考改革后各科题量变过（化学 29→20）
+    recent: dict[str, list[tuple[int, int]]] = defaultdict(list)
+    for p in papers:
+        recent[p["subject"]].append((p["year"], len(p["questions"])))
+    ref: dict[str, int] = {}
+    for s, rows in recent.items():
+        rows.sort(reverse=True)
+        top = [c for _, c in rows[:3]]
+        ref[s] = sorted(top)[len(top) // 2]
+    flagged: list[str] = []
+    for p in papers:
+        p.pop("incomplete", None)
+        p.pop("expectedCount", None)
+        c = len(p["questions"])
+        r = ref.get(p["subject"], 0)
+        if r and c < 0.65 * r:
+            p["incomplete"] = True
+            p["expectedCount"] = r
+            flagged.append(f'{p["id"]}({c}/{r})')
+    return flagged
 
 
 def main() -> None:
     files = sorted(p for p in DATA.glob("*.json") if p.name not in ("index.json", "questions.json", "tags.json", "version.json"))
-    papers = []
+    papers = [json.loads(f.read_text(encoding="utf-8")) for f in files]
+    dropped: list[str] = []
+    for paper in papers:
+        dropped += drop_junk(paper)
+    flagged = mark_incomplete(papers)
     flat = []
     tag_counter: dict[str, Counter] = defaultdict(Counter)
-    for f in files:
-        paper = json.loads(f.read_text(encoding="utf-8"))
-        papers.append(paper)
+    leaks = 0
+    for f, paper in zip(files, papers):
+        subject = paper["subject"]
+        canon = CANON.get(subject, set())
+        if subject == "chinese":
+            # 材料里的注音（流lián）等于把答案写在文段里
+            for c in paper.get("contexts") or []:
+                for fld in ("md", "html"):
+                    if c.get(fld):
+                        c[fld] = strip_empty_tables(scrub_pinyin(c[fld]))
         for q in paper["questions"]:
-            q["tags"] = tags_for(q, paper["subject"])
+            for fld in ("stem", "stemHtml"):
+                if q.get(fld):
+                    q[fld] = strip_empty_tables(scrub_pinyin(q[fld]) if subject == "chinese" else q[fld])
+            leaks += scrub_question(q)
+            scrub_option_noise(q)
             repair_answer_key(q)
+            mark_multi(q)
+            q["tags"] = tags_for(q, subject)
             for fld in ("analysis", "analysisHtml"):
                 if q.get(fld):
                     q[fld] = re.sub(r"^\s*【解析】\s*", "", q[fld])
             for t in q["tags"]:
-                tag_counter[paper["subject"]][t] += 1
+                if t in canon:
+                    tag_counter[subject][t] += 1
             flat.append(
                 {
                     "id": q["id"],
@@ -283,6 +489,8 @@ def main() -> None:
                 "fullScore": p["fullScore"],
                 "durationMin": p["durationMin"],
                 "count": len(p["questions"]),
+                "incomplete": bool(p.get("incomplete")),
+                "expectedCount": p.get("expectedCount"),
                 "choiceCount": kinds.get("choice", 0),
                 "withAnswer": sum(1 for q in p["questions"] if q["answer"] or q["analysis"]),
                 "contexts": len(p["contexts"]),
@@ -292,6 +500,11 @@ def main() -> None:
         )
     (DATA / "index.json").write_text(json.dumps(index, ensure_ascii=False, indent=1), encoding="utf-8")
     print(f"papers={len(index['papers'])}/{len(papers)} questions={len(flat)}")
+    print(f"  擦掉题干/材料里的答案泄露 {leaks} 处")
+    if dropped:
+        print(f"  丢掉抽取残渣 {len(dropped)} 条:", "，".join(dropped))
+    if flagged:
+        print("  残缺卷（可练不可估分）:", "，".join(flagged))
     if skipped:
         print("  跳过（题目/答案严重缺失）:", "，".join(skipped))
     for s, c in tag_counter.items():

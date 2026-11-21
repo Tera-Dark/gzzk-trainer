@@ -36,6 +36,8 @@ export interface Question {
   analysis: string
   analysisHtml: string
   answerKey: string | null
+  /** 多选题：答案不是一个字母，前端不做自动判分 */
+  multi?: boolean
   images: ImageRef[]
   contextId: string | null
   tags?: string[]
@@ -69,6 +71,9 @@ export interface Paper {
   questions: Question[]
   pages: Page[]
   answerPages?: Page[]
+  /** 题量明显少于同科正常年份：能练，但估分不可信 */
+  incomplete?: boolean
+  expectedCount?: number
 }
 
 export interface PaperMeta {
@@ -87,6 +92,8 @@ export interface PaperMeta {
   contexts: number
   pages: number
   sections: string[]
+  incomplete?: boolean
+  expectedCount?: number | null
 }
 
 export interface QuestionMeta {

@@ -75,7 +75,7 @@ export function Home() {
               {today.count}
               <span style={{ fontSize: 12, fontWeight: 500 }}> / {s.dailyGoal}</span>
             </b>
-            今日已练
+            {today.count >= s.dailyGoal ? '今日已练 ✓' : '今日已练'}
           </div>
           <div>
             <b>{due}</b>
@@ -156,7 +156,20 @@ export function Home() {
           const papers = index?.filter((p) => p.subject === sub.key) ?? []
           const totalQ = sub.count
           return (
-            <div key={sub.key} className="subCard" onClick={() => go(`/subject/${sub.key}`)} style={{ cursor: 'pointer' }}>
+            <div
+              key={sub.key}
+              className="subCard"
+              role="button"
+              tabIndex={0}
+              onClick={() => go(`/subject/${sub.key}`)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.preventDefault()
+                  go(`/subject/${sub.key}`)
+                }
+              }}
+              style={{ cursor: 'pointer' }}
+            >
               <div className="name">
                 <span className="dot" style={{ background: sub.color }} />
                 {sub.name}
@@ -180,7 +193,8 @@ export function Home() {
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
           {SUBJECTS.map((sub) => {
             const papers = (index ?? []).filter((p) => p.subject === sub.key).sort((a, b) => b.year - a.year)
-            const latest = papers[0]
+            // 首屏模考只推题量完整的卷：残缺卷估分没意义
+            const latest = papers.find((p) => !p.incomplete) ?? papers[0]
             if (!latest) return null
             return (
               <button key={sub.key} className="chip" onClick={() => go(`/exam/${latest.id}`)}>
@@ -221,7 +235,20 @@ export function Papers() {
           const count = (flat ?? []).filter((q) => q.s === sub.key).length
           const st = db.subjectStats(sub.key)
           return (
-            <div key={sub.key} className="subCard" onClick={() => go(`/subject/${sub.key}`)} style={{ cursor: 'pointer' }}>
+            <div
+              key={sub.key}
+              className="subCard"
+              role="button"
+              tabIndex={0}
+              onClick={() => go(`/subject/${sub.key}`)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.preventDefault()
+                  go(`/subject/${sub.key}`)
+                }
+              }}
+              style={{ cursor: 'pointer' }}
+            >
               <div className="name">
                 <span className="dot" style={{ background: sub.color }} />
                 {sub.name}
@@ -283,14 +310,24 @@ export function SubjectScreen({ subject }: { subject: Subject }) {
               <div className="t">
                 {p.year} 年 <span style={{ color: 'var(--muted)', fontWeight: 400, fontSize: 13 }}>· {p.count} 题 · {p.fullScore} 分</span>
               </div>
-              <div className="d">{p.pages ? '扫描版 · 可看原卷' : p.withAnswer < p.count ? `有 ${p.count - p.withAnswer} 题缺解析` : '题目 + 解析齐全'}</div>
+              <div className="d">
+                {p.incomplete
+                  ? `仅收录 ${p.count} 题（同科正常约 ${p.expectedCount ?? '—'} 题），不提供模考`
+                  : p.pages
+                    ? '扫描版 · 可看原卷'
+                    : p.withAnswer < p.count
+                      ? `有 ${p.count - p.withAnswer} 题缺解析`
+                      : '题目 + 解析齐全'}
+              </div>
             </div>
             <button className="btn sm" onClick={() => go(`/practice/${p.id}`)}>
               练习
             </button>
-            <button className="btn sm" style={{ color, borderColor: color }} onClick={() => go(`/exam/${p.id}`)}>
-              模考
-            </button>
+            {!p.incomplete && (
+              <button className="btn sm" style={{ color, borderColor: color }} onClick={() => go(`/exam/${p.id}`)}>
+                模考
+              </button>
+            )}
           </div>
         ))}
       </div>
@@ -325,10 +362,20 @@ export function PaperScreen({ pid }: { pid: string }) {
         <button className="btn primary" style={{ flex: 1 }} onClick={() => go(`/practice/${paper.id}`)}>
           逐题练习
         </button>
-        <button className="btn" style={{ flex: 1, color, borderColor: color }} onClick={() => go(`/exam/${paper.id}`)}>
-          整卷模考
-        </button>
+        {!paper.incomplete && (
+          <button className="btn" style={{ flex: 1, color, borderColor: color }} onClick={() => go(`/exam/${paper.id}`)}>
+            整卷模考
+          </button>
+        )}
       </div>
+
+      {paper.incomplete && (
+        <div className="card tight" style={{ borderLeft: '3px solid var(--warn)', marginTop: 10 }}>
+          <div style={{ fontSize: 13, color: 'var(--text2)', lineHeight: 1.7 }}>
+            这套卷子只收录了 {paper.questions.length} 题（正常约 {paper.expectedCount ?? '—'} 题），可以用来练题，但估分不准，所以没开模考。
+          </div>
+        </div>
+      )}
 
       {(pages.length > 0 || ansPages.length > 0) && (
         <div className="seg" style={{ marginTop: 14 }}>
@@ -360,7 +407,20 @@ export function PaperScreen({ pid }: { pid: string }) {
             const card = db.srsCard(q.id)
             const g = card?.last
             return (
-              <div className="row" key={q.id} onClick={() => go(`/practice/${paper.id}?start=${i}`)} style={{ cursor: 'pointer' }}>
+              <div
+                className="row"
+                key={q.id}
+                role="button"
+                tabIndex={0}
+                onClick={() => go(`/practice/${paper.id}?start=${i}`)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault()
+                    go(`/practice/${paper.id}?start=${i}`)
+                  }
+                }}
+                style={{ cursor: 'pointer' }}
+              >
                 <span className="pill">{q.no}</span>
                 <div className="grow">
                   <div className="d" style={{ marginTop: 0, color: 'var(--text)' }}>
@@ -409,6 +469,21 @@ export function ExamRoute({ pid }: { pid: string }) {
         <div className="empty">这套卷子是扫描件，暂时只能看原卷图片。</div>
         <button className="btn wide" onClick={() => nav(`/paper/${paper.id}`)}>
           去看看
+        </button>
+      </div>
+    )
+  }
+  if (paper.incomplete) {
+    return (
+      <div className="app noNav">
+        <div className="empty">
+          这套卷子只收录了 {paper.questions.length} 题（正常约 {paper.expectedCount ?? '—'} 题），估分会失真，所以没开模考。
+        </div>
+        <button className="btn wide primary" onClick={() => nav(`/practice/${paper.id}`)}>
+          改为逐题练习
+        </button>
+        <button className="btn wide" style={{ marginTop: 8 }} onClick={() => nav(`/paper/${paper.id}`)}>
+          返回试卷
         </button>
       </div>
     )

@@ -64,6 +64,8 @@ export function QuestionView({
   const { q, context, paper } = item
   const answered = graded !== null
   const isChoice = q.type === 'choice' && q.options.length >= 2
+  // 多选题（“正确的两项”）答案不是一个字母，全库都没有可靠答案键，只能看完答案自己判
+  const isMulti = isChoice && !q.answerKey
   const showAnswer = revealed || answered
   const ansRef = useRef<HTMLDivElement>(null)
   const wasRevealed = useRef(false)
@@ -85,6 +87,7 @@ export function QuestionView({
         </span>
         {q.score ? <span className="pill">{q.score} 分</span> : null}
         <span className="pill">{q.type === 'choice' ? '选择题' : q.type === 'blank' ? '填空题' : '解答题'}</span>
+        {isMulti ? <span className="pill warn">多选</span> : null}
         {q.tags?.slice(0, 2).map((t) => (
           <span className="pill" key={t}>
             {t}
@@ -111,7 +114,7 @@ export function QuestionView({
           {q.options.map((o) => {
             const cls = ['opt']
             const isSel = selected === o.k
-            if (answered || revealed) {
+            if (!isMulti && (answered || revealed)) {
               if (o.k === q.answerKey) cls.push('right')
               else if (isSel) cls.push('wrong')
             } else if (isSel) cls.push('sel')
@@ -164,8 +167,11 @@ export function QuestionView({
               </div>
             </div>
           ) : null}
-          {!isChoice && !answered && (
+          {!answered && (
             <div className="gradeRow">
+              <div style={{ gridColumn: '1 / -1', fontSize: 12, color: 'var(--muted)' }}>
+                {isMulti ? '多选题：看看答案，自己判定' : '对照答案，自己判定'}
+              </div>
               <button className="btn" onClick={() => onGrade('right')}>
                 <span style={{ color: 'var(--ok)', fontWeight: 700 }}>我做对了</span>
                 <small>算会</small>

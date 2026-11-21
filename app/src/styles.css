@@ -1321,6 +1321,15 @@ ins.lack {
   padding: 15px 16px;
   transition: border-color 0.16s;
 }
+/* 学习路径的科目卡改成了 button，声明式重置一下，外观保持原样 */
+button.pathCard {
+  width: 100%;
+  text-align: left;
+  font: inherit;
+  color: inherit;
+  border: 1px solid var(--line);
+  background: var(--card);
+}
 .pathCard:hover {
   border-color: var(--line2);
 }

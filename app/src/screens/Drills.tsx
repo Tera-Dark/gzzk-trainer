@@ -396,7 +396,9 @@ export function StatsScreen() {
               </div>
               <span className="num">
                 {st.total ? pct(st.accuracy) : '—'}
-                <span style={{ display: 'block', fontSize: 10 }}>{count ? `${st.covered}/${count}` : ''}</span>
+                <span style={{ display: 'block', fontSize: 10, whiteSpace: 'nowrap' }}>
+                  {count ? `已做 ${st.covered}/${count} 题` : ''}
+                </span>
               </span>
             </div>
           )

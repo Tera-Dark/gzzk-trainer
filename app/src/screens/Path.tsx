@@ -15,9 +15,10 @@ export const WRITE_TAGS: { s: Subject; tag: string; hint: string }[] = [
   { s: 'math', tag: '分式与根式', hint: '公式与步骤手写' },
 ]
 
-function pickForTag(tag: string, n = 8): Promise<LoadedQ[]> {
+function pickForTag(tag: string, n = 8, nonChoice = false): Promise<LoadedQ[]> {
   return loadQuestions().then((all) => {
-    const pool = all.filter((q) => q.g?.includes(tag) && q.a !== 0)
+    // 手写专项只挑能写出来的题；选择题进去也只能点 ABCD
+    const pool = all.filter((q) => q.g?.includes(tag) && q.a !== 0 && (!nonChoice || q.t !== 'choice'))
     const fresh = pool.filter((q) => !db.srsCard(q.id))
     const seen = pool.filter((q) => db.srsCard(q.id))
     // 未做过的优先；做过的按错误次数排序
@@ -66,20 +67,20 @@ export function PathHome() {
         const total = flat?.filter((q) => q.s === sub.key).length ?? 0
         const done = db.subjectStats(sub.key).covered
         return (
-          <div key={sub.key} className="card pathCard" onClick={() => go(`/path/${sub.key}`)}>
+          <button key={sub.key} className="card pathCard" onClick={() => go(`/path/${sub.key}`)}>
             <div className="name">
               <span className="dot" style={{ background: sub.color }} />
               {sub.name}
               <span className="grow" />
-              <span className="tiny muted">
-                {list.length} 个考点 · 已做 {done}/{total}
+              <span className="tiny muted" style={{ fontWeight: 400, whiteSpace: 'nowrap' }}>
+                {done}/{total} 题
               </span>
               <span className="chev">›</span>
             </div>
             <div className="bar">
               <i style={{ width: `${total ? Math.min(100, (done / total) * 100) : 0}%`, background: sub.color }} />
             </div>
-          </div>
+          </button>
         )
       })}
 
@@ -102,12 +103,67 @@ export function PathHome() {
 
 /* ---------------- 学习路径：单科考点列表 ---------------- */
 
+function TagRow({
+  subject,
+  name,
+  count,
+  done,
+  wrong,
+  mastery,
+  color,
+  muted,
+}: {
+  subject: Subject
+  name: string
+  count: number
+  done: number
+  wrong: number
+  mastery: number
+  color: string
+  muted?: boolean
+}) {
+  const open = () => go(`/lesson/${subject}/${encodeURIComponent(name)}`)
+  return (
+    <div
+      className="row"
+      role="button"
+      tabIndex={0}
+      onClick={open}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault()
+          open()
+        }
+      }}
+      style={{ cursor: 'pointer', opacity: muted ? 0.78 : 1 }}
+    >
+      <div className="grow">
+        <div className="t" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          {name}
+          <Crowns n={mastery} />
+        </div>
+        <div className="d">
+          {count} 题 · 已做 {done}
+          {wrong > 0 ? ` · 其中 ${wrong} 题还没拿下` : ''}
+        </div>
+      </div>
+      <span className="startBtn" style={{ background: color }}>
+        开始
+      </span>
+    </div>
+  )
+}
+
 export function SubjectPath({ subject }: { subject: Subject }) {
   useDB()
   const tags = useAsync(loadTags, [])
   const flat = useAsync(loadQuestions, [])
   const color = subjectColor(subject)
   const list = tags?.[subject] ?? []
+  // 题量不足 4 题的考点凑不成一关（涨星要 4 题以上），单独折起来
+  const main = list.filter((t) => t.count >= 4)
+  const rest = list.filter((t) => t.count < 4)
+  const [showRest, setShowRest] = useState(false)
   const byTag = useMemo(() => {
     const m = new Map<string, { total: number; done: number; wrong: number }>()
     for (const q of flat ?? []) {
@@ -134,33 +190,57 @@ export function SubjectPath({ subject }: { subject: Subject }) {
         </button>
         <div>
           <h1>{subjectName(subject)}</h1>
-          <div className="sub">{list.length} 个考点 · 点一个开始 8 题一关</div>
+          <div className="sub">
+            {main.length} 个考点 · 点一个开始 8 题一关{rest.length ? `（另有 ${rest.length} 个零散考点）` : ''}
+          </div>
         </div>
       </div>
 
       <div className="card" style={{ padding: '4px 14px' }}>
-        {list.map((t) => {
+        {main.map((t) => {
           const st = byTag.get(t.name) ?? { total: t.count, done: 0, wrong: 0 }
-          const m = db.masteryOf(subject + '|' + t.name)
           return (
-            <div className="row" key={t.name} onClick={() => go(`/lesson/${subject}/${encodeURIComponent(t.name)}`)} style={{ cursor: 'pointer' }}>
-              <div className="grow">
-                <div className="t" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                  {t.name}
-                  <Crowns n={m} />
-                </div>
-                <div className="d">
-                  {t.count} 题 · 已做 {st.done}
-                  {st.wrong > 0 ? ` · 其中 ${st.wrong} 题还没拿下` : ''}
-                </div>
-              </div>
-              <span className="startBtn" style={{ background: color }}>
-                开始
-              </span>
-            </div>
+            <TagRow
+              key={t.name}
+              subject={subject}
+              name={t.name}
+              count={t.count}
+              done={st.done}
+              wrong={st.wrong}
+              mastery={db.masteryOf(subject + '|' + t.name)}
+              color={color}
+            />
           )
         })}
       </div>
+
+      {rest.length > 0 && (
+        <>
+          <button className="btn wide" style={{ marginTop: 10 }} onClick={() => setShowRest((v) => !v)}>
+            {showRest ? '收起零散考点' : `零散考点 ${rest.length} 个（题量不足一关，可单题练）`}
+          </button>
+          {showRest && (
+            <div className="card" style={{ padding: '4px 14px', marginTop: 10 }}>
+              {rest.map((t) => {
+                const st = byTag.get(t.name) ?? { total: t.count, done: 0, wrong: 0 }
+                return (
+                  <TagRow
+                    key={t.name}
+                    subject={subject}
+                    name={t.name}
+                    count={t.count}
+                    done={st.done}
+                    wrong={st.wrong}
+                    mastery={db.masteryOf(subject + '|' + t.name)}
+                    color={color}
+                    muted
+                  />
+                )
+              })}
+            </div>
+          )}
+        </>
+      )}
     </div>
   )
 }
@@ -175,11 +255,11 @@ export function LessonScreen({ subject, tag, write }: { subject: Subject; tag: s
   useEffect(() => {
     let alive = true
     setItems(null)
-    pickForTag(tag, 8).then((r) => alive && setItems(r))
+    pickForTag(tag, 8, !!write).then((r) => alive && setItems(r))
     return () => {
       alive = false
     }
-  }, [tag, round])
+  }, [tag, write, round])
 
   if (!items) return <div className="empty">正在准备这一关…</div>
   if (!items.length) {
@@ -280,7 +360,7 @@ export function WriteMixedScreen() {
       const all = await loadQuestions()
       const ids: string[] = []
       for (const w of WRITE_TAGS) {
-        const pool = all.filter((q) => q.g?.includes(w.tag) && q.a !== 0 && !ids.includes(q.id))
+        const pool = all.filter((q) => q.g?.includes(w.tag) && q.a !== 0 && q.t !== 'choice' && !ids.includes(q.id))
         pool.sort(() => Math.random() - 0.5)
         ids.push(...pool.slice(0, 2).map((q) => q.id))
       }
