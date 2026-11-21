@@ -44,6 +44,7 @@ release/             本地 APK / 热更新包（git 忽略）
 - 不要删 `app/android/init-mirrors.gradle`：国内访问 Maven Central 会 403，靠它走阿里云镜像。
 - 不要在仓库路径里直接跑 gradle，用 `C:/gzzk-build` 联接。
 - 更新清单走 jsDelivr（`content.ts` 的 `RELEASE_BASE`、`liveUpdate.ts` 的 `BUNDLE_FEED`），因为 GitHub Pages 不返回 CORS 头。
+- 作答页的键盘/吸顶行为靠 `body` 上的 `typing`、`stemDock`、`stemClip` 三个类，由 `AnswerInput` 挂载和清理；改样式前先读懂 `styles.css` 的「竖屏作答」一节。
 
 ## 更新机制（三层）
 

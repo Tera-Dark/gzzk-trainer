@@ -4,6 +4,7 @@ import { judge, cleanRef, type JudgeResult } from '../lib/judge'
 import { HandwritingPad } from './HandwritingPad'
 import { render } from '../lib/md'
 import { fixHtml } from '../lib/data'
+import { ensureVisible } from '../lib/viewport'
 
 type Mode = 'type' | 'write' | 'pen'
 
@@ -25,6 +26,9 @@ export function AnswerInput({
   const [seconds, setSeconds] = useState(0)
   const [running, setRunning] = useState(true)
   const taRef = useRef<HTMLTextAreaElement>(null)
+  const resultRef = useRef<HTMLDivElement>(null)
+  const rootRef = useRef<HTMLDivElement>(null)
+  const [offScreen, setOffScreen] = useState(false)
   const ref = cleanRef(q.answer || '')
 
   useEffect(() => {
@@ -35,6 +39,7 @@ export function AnswerInput({
     setSeconds(0)
     setRunning(true)
     setMode(defaultMode)
+    document.body.classList.remove('typing', 'stemDock', 'stemClip')
   }, [q.id])
 
   useEffect(() => {
@@ -43,9 +48,53 @@ export function AnswerInput({
     return () => clearInterval(t)
   }, [mode, running])
 
+  // 打字时给 body 挂标记：题干吸顶、底栏让位（见 styles.css）
+  useEffect(() => {
+    return () => {
+      document.body.classList.remove('typing', 'stemDock', 'stemClip')
+    }
+  }, [])
+
+  // 作答区在屏幕外时给一个一键跳转，长题干不用一路往下找
+  useEffect(() => {
+    if (res) {
+      setOffScreen(false)
+      return
+    }
+    const check = () => {
+      const el = rootRef.current
+      if (!el) return
+      const r = el.getBoundingClientRect()
+      const vh = window.visualViewport?.height ?? window.innerHeight
+      setOffScreen(r.top > vh - 64 || r.bottom < 0)
+    }
+    check()
+    const t = window.setTimeout(check, 320)
+    window.addEventListener('scroll', check, { passive: true })
+    window.addEventListener('resize', check)
+    window.visualViewport?.addEventListener('resize', check)
+    return () => {
+      window.clearTimeout(t)
+      window.removeEventListener('scroll', check)
+      window.removeEventListener('resize', check)
+      window.visualViewport?.removeEventListener('resize', check)
+    }
+  }, [res, mode, q.id])
+
+  // 输入框随内容长高，不用在小框里滚动
+  useEffect(() => {
+    const ta = taRef.current
+    if (!ta || mode !== 'type') return
+    ta.style.height = 'auto'
+    const max = Math.round((window.visualViewport?.height ?? window.innerHeight) * 0.42)
+    ta.style.height = Math.min(ta.scrollHeight, max) + 'px'
+  }, [text, mode])
+
   function compare() {
     setRunning(false)
     setRes(judge(text, ref))
+    taRef.current?.blur()
+    setTimeout(() => ensureVisible(resultRef.current, { top: 96, bottom: 24 }), 80)
   }
 
   function pad(n: number) {
@@ -61,15 +110,35 @@ export function AnswerInput({
   ]
 
   return (
-    <div className="ansInput">
+    <div className="ansInput" ref={rootRef}>
+      {offScreen && !res && (
+        <button
+          className="jumpAns"
+          onClick={() => {
+            rootRef.current?.scrollIntoView({ block: 'center' })
+            if (mode === 'type') window.setTimeout(() => taRef.current?.focus(), 160)
+          }}
+        >
+          ↓ 去作答
+        </button>
+      )}
       <div className="segRow">
         {tabs.map(([k, label]) => (
-          <button key={k} className={'seg' + (mode === k ? ' on' : '')} onClick={() => setMode(k)}>
+          <button
+            key={k}
+            className={'seg' + (mode === k ? ' on' : '')}
+            onClick={() => {
+              // 切换方式时把键盘状态收干净，否则底栏会一直藏着
+              document.body.classList.remove('typing')
+              setMode(k)
+            }}
+          >
             {label}
           </button>
         ))}
         <span className="grow" />
         {mode !== 'type' && <span className="timer tiny">{mode === 'pen' ? '纸笔计时 ' + pad(seconds) : '手写板上作答'}</span>}
+
       </div>
 
       {mode === 'type' && (
@@ -82,13 +151,39 @@ export function AnswerInput({
             placeholder="打字写出你的答案：能写多少写多少，不用长篇大论"
             rows={3}
             disabled={!!res}
+            enterKeyHint="done"
+            autoCapitalize="off"
+            autoCorrect="off"
+            spellCheck={false}
+            onFocus={() => {
+              document.body.classList.add('typing', 'stemDock')
+              // 题干收成上方一块可滚动的面板：先停在原来正看着的那一段（尾部），
+              // 不要让视线跳走
+              window.setTimeout(() => {
+                const pane = document.querySelector('.qStemBody') as HTMLElement | null
+                if (!pane) return
+                const clipped = pane.scrollHeight > pane.clientHeight + 4
+                // 装不下时才提示能滑动，短题干不打扰
+                document.body.classList.toggle('stemClip', clipped)
+                if (clipped) pane.scrollTop = pane.scrollHeight
+              }, 0)
+              // 键盘弹出是分阶段完成的（iOS 不缩小 innerHeight），多校几次位置，
+              // 保证输入框和「对照答案」都在键盘上方
+              for (const t of [0, 120, 320, 650]) {
+                window.setTimeout(() => ensureVisible(taRef.current, { top: 96, bottom: 92 }), t)
+              }
+            }}
+            onBlur={() => {
+              // 键盘收起，但题干面板留着：对完答案时结果就在眼前，不会把页面抻开
+              document.body.classList.remove('typing')
+            }}
           />
           {!res ? (
             <button className="btn primary block" onClick={compare} disabled={!text.trim()}>
               对照答案
             </button>
           ) : (
-            <div className="judgeBox">
+            <div className="judgeBox" ref={resultRef}>
               <div className={'verdict ' + res.verdict}>
                 {res.blanks ? (
                   <>

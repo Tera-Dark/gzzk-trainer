@@ -1,9 +1,10 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { fixHtml } from '../lib/data'
 import { render } from '../lib/md'
 import type { Grade } from '../lib/types'
 import type { LoadedQ } from '../lib/data'
 import { AnswerInput } from './AnswerInput'
+import { ensureVisible } from '../lib/viewport'
 
 function stripLen(s: string): number {
   return (s || '').replace(/<[^>]+>/g, '').replace(/!\[[^\]]*\]\([^)]*\)/g, '图').replace(/[\s$]/g, '').length
@@ -64,6 +65,17 @@ export function QuestionView({
   const answered = graded !== null
   const isChoice = q.type === 'choice' && q.options.length >= 2
   const showAnswer = revealed || answered
+  const ansRef = useRef<HTMLDivElement>(null)
+  const wasRevealed = useRef(false)
+
+  // 主动要求看答案时，把答案/解析滚进视野（手机上它经常在屏幕外）
+  useEffect(() => {
+    const first = revealed && !wasRevealed.current && !isChoice
+    wasRevealed.current = revealed
+    if (!first) return
+    const t = setTimeout(() => ensureVisible(ansRef.current, { top: 100, bottom: 24 }), 80)
+    return () => clearTimeout(t)
+  }, [revealed, isChoice, q.id])
 
   return (
     <div className="qCard">
@@ -86,9 +98,13 @@ export function QuestionView({
         </button>
       </div>
 
-      {context && <ContextBox ctx={context} defaultOpen={stripLen(q.stemHtml || q.stem) < 12} />}
-
-      <Md src={q.stemHtml || q.stem} />
+      <div className="qStem">
+        <div className="qStemBody">
+          {context && <ContextBox ctx={context} defaultOpen={stripLen(q.stemHtml || q.stem) < 12} />}
+          <Md src={q.stemHtml || q.stem} />
+        </div>
+        <span className="qStemHint">↕ 上下滑动看完整题目</span>
+      </div>
 
       {isChoice ? (
         <div className="opts">
@@ -123,6 +139,7 @@ export function QuestionView({
       {showAnswer && (
         <>
           <div
+            ref={ansRef}
             className={`answerBox ${graded === 'right' ? 'good' : graded === 'wrong' ? 'bad' : ''}`}
             style={isChoice && !q.answer ? { display: 'none' } : undefined}
           >
