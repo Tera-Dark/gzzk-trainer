@@ -94,7 +94,7 @@ export async function fetchVersion(base = activeBase()): Promise<VersionInfo | n
 /* ---------- App 自身版本（原生包 / 安装版用） ---------- */
 
 /** 当前安装的 App 版本；每次发版改这里 + app/public/app-update.json */
-export const APP_VERSION = '1.0.0'
+export const APP_VERSION = '1.0.1'
 
 export interface AppUpdateInfo {
   version: string

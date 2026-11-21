@@ -41,7 +41,7 @@ release/             本地 APK / 热更新包（git 忽略）
 ## 约定与红线
 
 - **别手改 `app/public/data`**：题库只能由 pipeline 生成，否则下次重建就丢。
-- 版本号三处要一致：`app/src/lib/content.ts` 的 `APP_VERSION`、`app/public/app-update.json`、根 `bundle.json`。
+- 三个版本号各管一件事：`APP_VERSION`（`content.ts`）是当前代码版本，每次发版都改；`bundle.json` 是热更新包版本，与 `APP_VERSION` 一致；`app/public/app-update.json` 是**最新 APK** 的版本，只在真的重新出了安装包时才改——热更新时把它改高会让用户去下不存在的 APK。
 - 前端改动只进 `app/src/`；`dist/`、`app/android/app/src/main/assets/public/` 都是生成物。
 - 不要删 `app/android/init-mirrors.gradle`：国内访问 Maven Central 会 403，靠它走阿里云镜像。
 - 不要在仓库路径里直接跑 gradle，用 `C:/gzzk-build` 联接。

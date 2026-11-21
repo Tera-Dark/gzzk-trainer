@@ -101,10 +101,12 @@ cd C:/gzzk-build/app/android
 
 ```bash
 # 只改题库/前端 → 热更新
+# 1) 改 app/src/lib/content.ts 的 APP_VERSION，并把 app/public/app-update.json 保持原样
+#    （它是最新 APK 的版本，热更新时不改，否则会提示去下一个不存在的安装包）
 cd app && npm run build
 node pipeline/make-bundle.mjs 1.0.1 "修了错题本分页"
 gh release create v1.0.1 release/gzzk-bundle-1.0.1.zip --title v1.0.1 --notes "…"
-git add bundle.json && git commit -m "发布 v1.0.1" && git push
+git add bundle.json app/src/lib/content.ts && git commit -m "发布 v1.0.1" && git push
 
 # 改了原生插件 → 重新出 APK（gradle 走 ASCII 联接）
 cd app && npx cap sync android
