@@ -4,121 +4,119 @@
 
 不需要注册、不联网也能用，所有做题记录都存在自己的设备上。
 
-## 怎么打开
+- 在线版：https://tera-dark.github.io/gzzk-trainer/
+- 安卓安装包：https://github.com/Tera-Dark/gzzk-trainer/releases/latest
+- 源码仓库：https://github.com/Tera-Dark/gzzk-trainer
 
-**Windows 电脑**
+## 快速开始
 
-双击 `启动训练台.bat`，浏览器会自动打开 `http://localhost:8080`。
+**电脑**：双击 `启动训练台.bat`（首次会自动安装依赖并构建），浏览器打开 `http://localhost:8080`。
 
-**手机（同一个 WiFi）**
+**手机（同一 WiFi）**：先双击上面的 bat，再在手机浏览器输入窗口里打印的 `http://192.168.x.x:8080`，菜单里选「添加到主屏幕」。
 
-1. 先在电脑上双击 `启动训练台.bat`；
-2. 看窗口里打印的「手机打开」地址（形如 `http://192.168.x.x:8080`），在手机浏览器里输入；
-3. 手机浏览器菜单里选「添加到主屏幕」，之后像 App 一样从桌面打开。
+**装成 App**：
 
-## 装成 App（PWA）
+- 安卓：装 Release 里的 APK；或浏览器里选「安装应用」；
+- Windows / macOS：Chrome 地址栏右侧「安装」；
+- iPhone：Safari 分享 →「添加到主屏幕」。
 
-这个项目已经带 PWA 支持，可以像原生 App 一样装到桌面上，断网也能做题：
-
-- **安卓 / 手机浏览器**：打开网址 → 菜单里选「安装应用」或「添加到主屏幕」；
-- **Windows / macOS / Chrome**：地址栏右侧出现「安装」图标，点一下就有独立窗口，任务栏里和普通软件一样；
-- **iPhone / Safari**：分享 → 「添加到主屏幕」。
-
-装好之后有图标、全屏无地址栏、离线可用；打开时如果题库有新版本，页面顶部会出现「有新内容」的提示条，点「立即更新」就能拉到最新一卷。
-
-## 内容更新推送
-
-题库和 App 是分开的：
-
-1. 改完题库后运行 `python pipeline/publish.py`，会在根目录生成 `content/` 内容包（含 `version.json` 与文件哈希清单）；
-2. 把 `content/` 整个目录丢到任意静态托管（GitHub Pages、对象存储、自己的服务器）；
-3. 用户端在「我的 → 内容更新」里填这个地址，之后每次打开会自动比对版本号，有新版本就在顶部弹提示。
-
-留空则跟随 App 自身发布：重新构建部署后，用户端同样会自动收到「有新内容」的提醒。
+PWA 与 APK 都带离线缓存，装好后断网也能做题。
 
 ## 里面有什么
 
-- **66 套真题 / 1707 道题**：语文、数学、英语、物理、化学、历史、道德与法治；每年一套，解析卷里面的答案与详解都已结构化。
-- **逐题练习**：选择题点一下就判对错，填空/解答题看完答案后自己打分（对 / 半对 / 错）。
-- **整卷模考**：按真实时长倒计时，交卷后选择题自动判分，主观题自评，最后给出估分和答题卡。
-- **错题本**：做错、半对的题自动进来；重做对了才移出。
-- **间隔复习**：每题按 1 / 2 / 4 / 7 / 15 / 30 / 60 天的节奏回到「今日复习」。
-- **考点诊断**：每道题都打了考点标签（由解析原文里的「本题考查……」+ 各科考点关键词得出），可以按考点专项刷，也能看到自己哪些考点错得多。
-- **原卷图片**：扫描件版本的卷子（如 2018 物理、2020 化学部分）可以整页看原卷和答案解析图。
+- **66 套真题 / 1707 道题**：语文、数学、英语、物理、化学、历史、道德与法治，每年一套，答案与详解已结构化。
+- **逐题练习**：选择题点一下即判；填空/解答题支持打字对照、屏幕手写、纸笔计时，看完答案自评对 / 半对 / 错。
+- **整卷模考**：按真实时长倒计时，交卷自动判选择题、主观题自评，给出估分与答题卡。
+- **错题本 + 收藏**：做错、半对自动进入，重做对才移出。
+- **间隔复习**：1 / 2 / 4 / 7 / 15 / 30 / 60 天。
+- **学习路径**：按考点一关 8 题，正确率 80% 加一颗掌握星。
+- **考点诊断**：标签来自解析原文的「本题考查……」，可按考点专项刷。
+- **原卷图片**：扫描件卷子可整页看原卷与答案解析图。
 
-## 已知情况
+## 更新机制
 
-- 数据是机器从 Word 真题里抽取的，少数卷子有个别题图片/选项缺失（App 里会显示「请到答案解析图查看」）；需要原卷时以 `广州/` 里的原始 docx 为准。
-- 2017 英语、2019 英语两套卷的源文件本身没有答案，已从题库里排除。
-- 题型里的「解答题」是机器按有无选项、有无填空线判断的，个别题目的"选择/填空"标注可能与原卷不一致，不影响做题和看解析。
+用户端会自动检查三层更新，看到顶部提示点一下即可：
 
-## 发版 / 推送更新
+| 层 | 判断依据 | 用户操作 |
+|---|---|---|
+| 题库内容 | `data/version.json` | 「有新内容 → 立即更新」，不重装 |
+| App 版本 | `app-update.json` | 「App 有新版本 → 去更新」，跳发布页下载 |
+| 热更新 | 根目录 `bundle.json` | 后台下包，「立即重启」生效，不重装 |
 
-用户手里的 App 会自动检查两种更新，看到提示点一下就行：
-
-**① 题库更新（不用重新装 App）**
-
-```bash
-python pipeline/extract.py 数学 2024   # 只重抽某一套")  # 或全量
-python pipeline/finalize.py
-python pipeline/publish.py --notes "新增 2026 二模"
-cd app && npm run build && npx cap sync android   # 重新打包时才需要
-```
-
-把 `content/` 传到静态托管，或在 App「我的 → 内容更新」里填地址；用户下次打开就会看到「有新内容」。
-
-**② App 版本更新（改了界面/功能）**
-
-1. 改 `app/src/lib/content.ts` 里的 `APP_VERSION`（如 `1.0.1`）；
-2. 改 `app/public/app-update.json` 的 `version` 与 `notes`；
-3. 构建安装包：
-
-```bash
-cd app
-npm run build
-npx cap sync android
-cd android && ./gradlew assembleDebug
-```
-
-4. 推送 `main`，Pages 会同步更新；用户端顶部会出现「App 有新版本 → 去更新」。
-
-**③ 热更新（改界面也不让用户重装 APK）**
-
-已接入 Capacitor Live Update，只要把新的 web 包做成 zip 传上去就行：
-
-```bash
-cd app && npm run build
-node pipeline/make-bundle.mjs 1.0.1 "修了错题本分页"
-# 按脚本提示上传 zip 到 Release，并提交 bundle.json
-```
-
-App 启动时读 `bundle.json`（走 jsDelivr，带 CORS），发现新版本就后台下载，
-顶部提示「新版本已准备好 → 立即重启」，重启后生效，不用重新装 APK。
-只有新增原生插件时才需要重新出 APK。
+只有新增原生插件时才需要重新出 APK；改界面、加功能、换题库都走热更新。
 
 ## 目录结构
 
 ```
-广州/                     原始真题 docx（不动）
+广州/                     原始真题 docx（不进 git）
 pipeline/                 数据管线
-  extract.py              docx -> markdown -> 结构化 JSON + 图片资源
-  wmf2png.ps1             Word 公式图（WMF/EMF）转 PNG（用系统 GDI+，无需装软件）
-  finalize.py             考点标签、全局题目索引、题库汇总
-app/                      前端（Vite + React + TypeScript + KaTeX）
-  public/data/            生成的题库 JSON
-  public/assets/          生成的题目图片（webp）
-  dist/                   构建产物（由 serve.mjs 提供）
+  extract.py              docx -> markdown -> 结构化 JSON + 图片
+  finalize.py             考点标签、全局索引、题库汇总
+  wmf2png.ps1             Word 公式图（WMF/EMF）转 PNG（系统 GDI+）
+  publish.py              打出 content/ 内容包（题库热更新用）
+  make-bundle.mjs         打出热更新 zip 并更新 bundle.json
+  make-icons.ps1          PWA 图标
+  make-android-icons.ps1  Android 图标与启动图
+app/                      前端
+  src/                    React 源码（screens / components / lib）
+  public/                 生成物：data/、assets/、sw.js、清单 JSON
+  android/                Capacitor 原生工程
+  dist/                   构建产物（serve.mjs 提供）
+content/                  publish.py 生成的内容包
+release/                  本地 APK / 热更新包
+bundle.json               热更新清单（线上读这份）
 serve.mjs                 零依赖静态服务器
 启动训练台.bat            一键启动
 ```
 
-## 重新生成题库（改了管线或加了新卷子时）
+## 开发
 
 ```bash
-pip install python-docx pillow lxml      # 依赖
-python pipeline/extract.py --force       # 重新抽取（全量约 15 分钟）
-python pipeline/finalize.py              # 打考点标签 + 重建索引
-cd app && npm install && npm run build   # 重新构建前端
+cd app && npm install
+npm run dev          # 开发服务器 http://localhost:5180
+npm run build        # 产出 app/dist
 ```
 
-也可以只跑某一科某一年做调试：`python pipeline/extract.py 数学 2024`。
+重新生成题库：
+
+```bash
+pip install python-docx pillow lxml
+python pipeline/extract.py --force     # 全量约 15 分钟；也可 python pipeline/extract.py 数学 2024
+python pipeline/finalize.py
+cd app && npm run build
+```
+
+打包安卓（仓库路径含中文，gradle 必须在 ASCII 路径下跑，`C:\gzzk-build` 是指向本目录的联接）：
+
+```bash
+cd app && npx cap sync android
+cd C:/gzzk-build/app/android
+./gradlew.bat --init-script init-mirrors.gradle assembleDebug
+```
+
+`init-mirrors.gradle` 把 Maven 仓库换成阿里云镜像，国内网络访问 Maven Central 会返回 403。
+
+发版：
+
+```bash
+# 只改题库/前端 → 热更新
+cd app && npm run build
+node pipeline/make-bundle.mjs 1.0.1 "修了错题本分页"
+gh release create v1.0.1 release/gzzk-bundle-1.0.1.zip --title v1.0.1 --notes "…"
+git add bundle.json && git commit -m "发布 v1.0.1" && git push
+
+# 改了原生插件 → 重新出 APK
+cd app && npx cap sync android && cd ../android && ./gradlew.bat assembleDebug
+```
+
+## 已知情况
+
+- 题库是机器从 Word 抽取的，少数卷子个别题图片/选项缺失（App 会提示「请到答案解析图查看」），以 `广州/` 原始 docx 为准。
+- 2017 英语、2019 英语源文件本身没有答案，已排除。
+- 题型「解答题」按有无选项/填空线判断，个别标注可能与原卷不一致，不影响做题。
+- APK 目前用 debug 签名，安装时会提示「未知来源」。
+
+## 当前状态（2026-11-21）
+
+- v1.0.0 已发布：GitHub Release 有 APK，Pages 站点在线，热更新通道打通。
+- 尚未在真机上跑通「安装 → 收更新 → 重启生效」全链路。
