@@ -104,7 +104,7 @@ export interface AppUpdateInfo {
 }
 
 /** 正式的发行地址：原生包内置的版本号要和这里的 app-update.json 比对 */
-export const RELEASE_BASE = 'https://tera-dark.github.io/gzzk-trainer/'
+export const RELEASE_BASE = 'https://cdn.jsdelivr.net/gh/Tera-Dark/gzzk-trainer@main/app/public/'
 
 export async function fetchAppUpdate(): Promise<AppUpdateInfo | null> {
   // 先问线上发行地址（原生包内部只有副本，必须去线上比对），再退回当前内容源

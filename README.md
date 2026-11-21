@@ -80,9 +80,21 @@ npx cap sync android
 cd android && ./gradlew assembleDebug
 ```
 
-4. 把 `app/android/app/build/outputs/apk/debug/app-debug.apk` 传到 GitHub Release，
-   并把 `app-update.json` 里的 `url` 指向那个 Release；
-5. 推送 `main`，Pages 会同步更新；用户端顶部会出现「App 有新版本 → 去更新」。
+4. 推送 `main`，Pages 会同步更新；用户端顶部会出现「App 有新版本 → 去更新」。
+
+**③ 热更新（改界面也不让用户重装 APK）**
+
+已接入 Capacitor Live Update，只要把新的 web 包做成 zip 传上去就行：
+
+```bash
+cd app && npm run build
+node pipeline/make-bundle.mjs 1.0.1 "修了错题本分页"
+# 按脚本提示上传 zip 到 Release，并提交 bundle.json
+```
+
+App 启动时读 `bundle.json`（走 jsDelivr，带 CORS），发现新版本就后台下载，
+顶部提示「新版本已准备好 → 立即重启」，重启后生效，不用重新装 APK。
+只有新增原生插件时才需要重新出 APK。
 
 ## 目录结构
 
