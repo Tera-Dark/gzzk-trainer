@@ -52,6 +52,38 @@
 - 2017 英语、2019 英语两套卷的源文件本身没有答案，已从题库里排除。
 - 题型里的「解答题」是机器按有无选项、有无填空线判断的，个别题目的"选择/填空"标注可能与原卷不一致，不影响做题和看解析。
 
+## 发版 / 推送更新
+
+用户手里的 App 会自动检查两种更新，看到提示点一下就行：
+
+**① 题库更新（不用重新装 App）**
+
+```bash
+python pipeline/extract.py 数学 2024   # 只重抽某一套")  # 或全量
+python pipeline/finalize.py
+python pipeline/publish.py --notes "新增 2026 二模"
+cd app && npm run build && npx cap sync android   # 重新打包时才需要
+```
+
+把 `content/` 传到静态托管，或在 App「我的 → 内容更新」里填地址；用户下次打开就会看到「有新内容」。
+
+**② App 版本更新（改了界面/功能）**
+
+1. 改 `app/src/lib/content.ts` 里的 `APP_VERSION`（如 `1.0.1`）；
+2. 改 `app/public/app-update.json` 的 `version` 与 `notes`；
+3. 构建安装包：
+
+```bash
+cd app
+npm run build
+npx cap sync android
+cd android && ./gradlew assembleDebug
+```
+
+4. 把 `app/android/app/build/outputs/apk/debug/app-debug.apk` 传到 GitHub Release，
+   并把 `app-update.json` 里的 `url` 指向那个 Release；
+5. 推送 `main`，Pages 会同步更新；用户端顶部会出现「App 有新版本 → 去更新」。
+
 ## 目录结构
 
 ```

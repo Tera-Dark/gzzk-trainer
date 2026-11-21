@@ -47,6 +47,12 @@ export function Home() {
   return (
     <div className="app">
       <div className="pageHead">
+        <div className="brandMark" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M4 7h16M4 12h16M4 17h9" />
+            <path d="M17 15.5l2 2 3.5-4" />
+          </svg>
+        </div>
         <div>
           <h1>真题训练台</h1>
           <div className="sub">广州中考 · 2017–2026 全科真题</div>

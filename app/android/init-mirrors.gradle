@@ -1,0 +1,18 @@
+// 国内网络环境：Maven Central / plugins.gradle.org 会返回 403，
+// 这里统一给所有项目（含 node_modules 里的 capacitor-android）注入阿里云镜像。
+// 用法： ./gradlew --init-script init-mirrors.gradle assembleDebug
+
+def mirrors = [
+    'https://maven.aliyun.com/repository/google',
+    'https://maven.aliyun.com/repository/public',
+    'https://maven.aliyun.com/repository/gradle-plugin',
+]
+
+gradle.allprojects { p ->
+    p.buildscript.repositories {
+        mirrors.each { u -> maven { url u } }
+    }
+    p.repositories {
+        mirrors.each { u -> maven { url u } }
+    }
+}

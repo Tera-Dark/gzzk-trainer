@@ -1502,6 +1502,84 @@ ins.lack {
   color: #b91c1c;
 }
 
+/* ---------- 品牌标识 / 交互细节 ---------- */
+.brandMark {
+  width: 38px;
+  height: 38px;
+  border-radius: 11px;
+  background: var(--accent);
+  display: grid;
+  place-items: center;
+  flex: none;
+  box-shadow: 0 2px 8px rgba(23, 163, 74, 0.22);
+}
+.brandMark svg {
+  width: 20px;
+  height: 20px;
+}
+
+.cardTitle .badge {
+  font-size: 10.5px;
+  font-weight: 600;
+  color: var(--accent-2);
+  background: var(--accent-soft);
+  border-radius: 999px;
+  padding: 2px 8px;
+  letter-spacing: 0.2px;
+}
+
+.sectionTitle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 16px;
+  font-weight: 700;
+  letter-spacing: -0.3px;
+  margin: 22px 2px 10px;
+}
+.sectionTitle .more {
+  margin-left: auto;
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--muted);
+}
+section.first .sectionTitle {
+  margin-top: 16px;
+}
+
+.row.clickable {
+  cursor: pointer;
+  margin: 0 -8px;
+  padding-left: 8px;
+  padding-right: 8px;
+  border-radius: 9px;
+  transition: background 0.14s;
+}
+.row.clickable:hover {
+  background: #fafaf7;
+}
+
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 8px;
+}
+
+.hero .big em {
+  font-style: normal;
+  color: var(--accent-2);
+}
+
+/* 复习 / 继续上次 两个入口并排时的分隔感 */
+.quickRow {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+.quickRow .btn {
+  flex: 1;
+}
+
 /* ==========================================================================
    大屏 / 桌面端：内容居中、导航变成悬浮胶囊
    ========================================================================== */

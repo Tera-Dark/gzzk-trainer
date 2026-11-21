@@ -8,7 +8,15 @@ import { SettingsScreen } from './screens/Settings'
 import { PathHome, SubjectPath, LessonScreen, WriteHome, WriteMixedScreen } from './screens/Path'
 import { QuizScreen } from './screens/Quiz'
 import * as db from './lib/db'
-import { applyUpdate, fetchVersion, type UpdateState } from './lib/content'
+import {
+  applyUpdate,
+  fetchVersion,
+  fetchAppUpdate,
+  isNewerVersion,
+  APP_VERSION,
+  type AppUpdateInfo,
+  type UpdateState,
+} from './lib/content'
 
 function UpdateBanner() {
   const [st, setSt] = useState<UpdateState | null>(null)
@@ -67,6 +75,54 @@ function UpdateBanner() {
         }}
       >
         {busy ? '更新中…' : '立即更新'}
+      </button>
+    </div>
+  )
+}
+
+function AppUpdateBanner() {
+  const [info, setInfo] = useState<AppUpdateInfo | null>(null)
+  const [closed, setClosed] = useState(() => sessionStorage.getItem('gzzk.appUpdate.skip') !== null)
+
+  useEffect(() => {
+    if (closed) return
+    let alive = true
+    void (async () => {
+      const r = await fetchAppUpdate()
+      if (!alive || !r?.version) return
+      if (isNewerVersion(r.version, APP_VERSION)) setInfo(r)
+    })()
+    return () => {
+      alive = false
+    }
+  }, [closed])
+
+  if (!info || closed) return null
+  return (
+    <div className="updBanner">
+      <div className="txt">
+        <b>App 有新版本</b>
+        <span>
+          v{info.version}
+          {info.notes ? ` · ${info.notes}` : ''}
+        </span>
+      </div>
+      <button
+        className="btn sm"
+        onClick={() => {
+          sessionStorage.setItem('gzzk.appUpdate.skip', '1')
+          setClosed(true)
+        }}
+      >
+        以后
+      </button>
+      <button
+        className="btn sm primary"
+        onClick={() => {
+          if (info.url) window.open(info.url, '_blank', 'noopener')
+        }}
+      >
+        去更新
       </button>
     </div>
   )
@@ -196,6 +252,7 @@ export function App() {
 
   return (
     <>
+      <AppUpdateBanner />
       <UpdateBanner />
       {page}
       {!isQuiz && <Nav route={path} />}

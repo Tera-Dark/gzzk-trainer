@@ -91,6 +91,48 @@ export async function fetchVersion(base = activeBase()): Promise<VersionInfo | n
   }
 }
 
+/* ---------- App 自身版本（原生包 / 安装版用） ---------- */
+
+/** 当前安装的 App 版本；每次发版改这里 + app/public/app-update.json */
+export const APP_VERSION = '1.0.0'
+
+export interface AppUpdateInfo {
+  version: string
+  url: string
+  notes?: string
+  releasedAt?: string
+}
+
+/** 正式的发行地址：原生包内置的版本号要和这里的 app-update.json 比对 */
+export const RELEASE_BASE = 'https://tera-dark.github.io/gzzk-trainer/'
+
+export async function fetchAppUpdate(): Promise<AppUpdateInfo | null> {
+  // 先问线上发行地址（原生包内部只有副本，必须去线上比对），再退回当前内容源
+  const bases = [RELEASE_BASE, activeBase()]
+  for (const base of bases) {
+    try {
+      const res = await fetch(`${base}app-update.json?t=${Date.now()}`, { cache: 'no-store' })
+      if (!res.ok) continue
+      return (await res.json()) as AppUpdateInfo
+    } catch {
+      /* 试下一个来源 */
+    }
+  }
+  return null
+}
+
+/** 语义化版本比较：remote 比 local 新则返回 true */
+export function isNewerVersion(remote: string, local: string): boolean {
+  const a = String(remote).split('.').map((x) => parseInt(x, 10) || 0)
+  const b = String(local).split('.').map((x) => parseInt(x, 10) || 0)
+  for (let i = 0; i < Math.max(a.length, b.length); i++) {
+    const x = a[i] ?? 0
+    const y = b[i] ?? 0
+    if (x !== y) return x > y
+  }
+  return false
+}
+
 export type UpdateState =
   | { kind: 'idle' }
   | { kind: 'checking' }

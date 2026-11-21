@@ -2,7 +2,17 @@ import { useEffect, useRef, useState } from 'react'
 import { loadIndex, loadQuestions } from '../lib/data'
 import * as db from '../lib/db'
 import { useDB, useToast, Toast } from '../ui'
-import { applyUpdate, checkForUpdate, isRemote, type UpdateState, type VersionInfo } from '../lib/content'
+import {
+  applyUpdate,
+  checkForUpdate,
+  fetchAppUpdate,
+  isNewerVersion,
+  isRemote,
+  APP_VERSION,
+  type AppUpdateInfo,
+  type UpdateState,
+  type VersionInfo,
+} from '../lib/content'
 
 export function SettingsScreen() {
   useDB()
@@ -13,6 +23,7 @@ export function SettingsScreen() {
   const [stats, setStats] = useState<{ papers: number; questions: number } | null>(null)
   const [upd, setUpd] = useState<UpdateState>({ kind: 'idle' })
   const [ver, setVer] = useState(db.contentVersion() ?? '')
+  const [appUpd, setAppUpd] = useState<AppUpdateInfo | 'checking' | 'latest' | null>(null)
 
   useEffect(() => {
     void (async () => {
@@ -212,6 +223,46 @@ export function SettingsScreen() {
       </div>
 
       <div className="card">
+        <div className="cardTitle">App 更新</div>
+        <div className="settingRow">
+          <div>
+            <div className="k">当前版本</div>
+            <div className="hint">安装到手机 / 桌面的这个 App</div>
+          </div>
+          <div style={{ textAlign: 'right', width: 'auto', fontVariantNumeric: 'tabular-nums' }}>v{APP_VERSION}</div>
+        </div>
+        <button
+          className="btn wide"
+          style={{ marginTop: 12 }}
+          disabled={appUpd === 'checking'}
+          onClick={async () => {
+            setAppUpd('checking')
+            const r = await fetchAppUpdate()
+            if (r && isNewerVersion(r.version, APP_VERSION)) setAppUpd(r)
+            else setAppUpd(r ? 'latest' : null)
+            if (!r) setMsg('连不上更新服务器')
+          }}
+        >
+          {appUpd === 'checking' ? '检查中…' : '检查 App 更新'}
+        </button>
+        {appUpd === 'latest' && (
+          <div className="tiny muted" style={{ marginTop: 8 }}>
+            已是最新版（v{APP_VERSION}）
+          </div>
+        )}
+        {appUpd && typeof appUpd === 'object' && (
+          <div className="tiny" style={{ marginTop: 8, lineHeight: 1.7 }}>
+            发现新版本 <b>v{appUpd.version}</b>
+            {appUpd.notes ? ` · ${appUpd.notes}` : ''}
+            <br />
+            <button className="btn sm primary" style={{ marginTop: 8 }} onClick={() => window.open(appUpd.url, '_blank', 'noopener')}>
+              去更新
+            </button>
+          </div>
+        )}
+      </div>
+
+      <div className="card">
         <div className="cardTitle">题库</div>
         <div className="settingRow">
           <div className="k">收录试卷</div>
@@ -254,7 +305,7 @@ export function SettingsScreen() {
       </div>
 
       <div className="empty" style={{ paddingTop: 8, fontSize: 12 }}>
-        真题训练台 · v1.0
+        真题训练台 · v{APP_VERSION}
         <br />
         离线可用 · 不需要注册 · 数据不上传
       </div>

@@ -22,3 +22,16 @@ Thumbs.db
 
 # 本地预览截图
 screenshot-*.png
+
+# Android 构建产物与本地环境
+app/android/.gradle/
+app/android/build/
+app/android/app/build/
+app/android/local.properties
+app/android/app/src/main/assets/public/
+app/android/app/src/main/assets/capacitor.config.json
+
+# 打包出来的安装包
+release/
+*.apk
+*.aab
