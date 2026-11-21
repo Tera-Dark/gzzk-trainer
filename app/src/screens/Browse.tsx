@@ -114,6 +114,12 @@ export function Home() {
         </button>
       </div>
 
+      <button className="entryCard" style={{ marginTop: 10 }} onClick={() => go('/writing')}>
+        <div className="ico">📝</div>
+        <div className="t">写作素材</div>
+        <div className="d">语文 / 英语作文 · 道法 / 历史小论文</div>
+      </button>
+
       {(due > 0 || last) && (
         <div className="card tight" style={{ display: 'flex', gap: 10 }}>
           {due > 0 && (

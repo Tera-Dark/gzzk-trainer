@@ -89,6 +89,13 @@ export function PathHome() {
           默写、拼写、化学式这些必须写出来的东西，单独练一轮。可以在屏幕上写，也可以拿纸笔写后对答案。
         </div>
       </div>
+
+      <div className="card" onClick={() => go('/writing')} style={{ cursor: 'pointer' }}>
+        <div className="cardTitle">📝 写作素材</div>
+        <div style={{ fontSize: 13, color: 'var(--text2)', lineHeight: 1.8 }}>
+          语文、英语作文的结构与素材，道法、历史小论文的论点论据与范文，考前翻两遍就够用。
+        </div>
+      </div>
     </div>
   )
 }

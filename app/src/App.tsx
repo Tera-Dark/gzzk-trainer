@@ -6,6 +6,7 @@ import { Home, Papers, PaperScreen, PracticeScreen, SubjectScreen, ExamRoute } f
 import { MistakesScreen, ReviewScreen, StatsScreen, TagScreen, DrillScreen } from './screens/Drills'
 import { SettingsScreen } from './screens/Settings'
 import { PathHome, SubjectPath, LessonScreen, WriteHome, WriteMixedScreen } from './screens/Path'
+import { WritingHome, WritingDocScreen } from './screens/Writing'
 import { QuizScreen } from './screens/Quiz'
 import * as db from './lib/db'
 import {
@@ -284,6 +285,9 @@ export function App() {
       break
     case 'lesson':
       page = <LessonScreen subject={parts[1] as Subject} tag={decodeURIComponent(parts[2] ?? '')} />
+      break
+    case 'writing':
+      page = parts[1] ? <WritingDocScreen id={parts[1]} /> : <WritingHome />
       break
     case 'write':
       if (!parts[1]) page = <WriteHome />

@@ -1773,3 +1773,117 @@ body.stemDock .jumpAns {
     line-height: 2;
   }
 }
+
+/* ==========================================================================
+   写作素材：总览 + 长文阅读
+   ========================================================================== */
+.wCard {
+  margin-top: 10px;
+  cursor: pointer;
+  transition: border-color 0.16s, transform 0.1s;
+}
+.wCard:hover {
+  border-color: var(--line2);
+}
+.wCard:active {
+  transform: scale(0.995);
+}
+.wCardTop {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  font-size: 15.5px;
+  letter-spacing: -0.1px;
+}
+.wCardTop .grow {
+  flex: 1;
+}
+.wCardSub {
+  font-size: 12.5px;
+  color: var(--muted);
+  margin-top: 5px;
+  padding-left: 19px;
+}
+.wCardTags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 11px;
+}
+
+/* 章节快速跳转：横向可滑，粘在顶栏下面 */
+.wChips {
+  position: sticky;
+  top: calc(env(safe-area-inset-top) + 72px);
+  z-index: 20;
+  display: flex;
+  gap: 7px;
+  overflow-x: auto;
+  margin: 0 -18px;
+  padding: 6px 18px 10px;
+  background: linear-gradient(var(--bg) 84%, rgba(247, 247, 245, 0));
+  scrollbar-width: none;
+}
+.wChips::-webkit-scrollbar {
+  display: none;
+}
+.wChips .chip {
+  flex: none;
+  font-weight: 550;
+}
+
+.wSec {
+  margin-top: 12px;
+  /* html 已有 scroll-padding-top: 84px，这里只补顶栏下章节条的余量 */
+  scroll-margin-top: 52px;
+}
+.wSecTitle {
+  margin: 0 0 12px;
+  font-size: 16.5px;
+  font-weight: 700;
+  letter-spacing: -0.2px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--line);
+}
+.wSec .md {
+  font-size: 15.5px;
+  line-height: 1.98;
+}
+.wSec .md h3 {
+  margin: 22px 0 8px;
+  font-size: 14.5px;
+  font-weight: 700;
+  color: var(--text);
+  letter-spacing: 0.1px;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+.wSec .md h3:first-child {
+  margin-top: 0;
+}
+.wSec .md h3::before {
+  content: '';
+  width: 3px;
+  height: 13px;
+  border-radius: 2px;
+  background: var(--accent);
+}
+.wSec .md li {
+  line-height: 1.9;
+  margin: 5px 0;
+}
+.wSec .md blockquote {
+  font-size: 15px;
+  line-height: 1.9;
+  color: var(--text2);
+}
+.wSec .md table {
+  font-size: 13px;
+  text-align: left;
+}
+.wSec .md th,
+.wSec .md td {
+  text-align: left;
+  padding: 8px 10px;
+}
