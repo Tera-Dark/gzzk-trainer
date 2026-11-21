@@ -11,8 +11,22 @@ import { Capacitor } from '@capacitor/core'
 import { LiveUpdate } from '@capawesome/capacitor-live-update'
 import { APP_VERSION, isNewerVersion } from './content'
 
-/** 发版清单（jsDelivr 有 CORS，浏览器和原生 WebView 都读得到） */
-export const BUNDLE_FEED = 'https://cdn.jsdelivr.net/gh/Tera-Dark/gzzk-trainer@main/bundle.json'
+/**
+ * 发版清单，按可信度排序。几个源都带 CORS，浏览器和原生 WebView 都读得到。
+ *
+ * 1. GitHub Pages：发版后随站点部署，Cache-Control 只有 600 秒，最可靠。
+ * 2. jsDelivr：国内大多能连，但 `@main` 会把「分支 → commit」的解析结果缓存十几个
+ *    小时，发完版常常还读到旧内容（2026-11-21 就踩到过），所以只当兜底。
+ * 3. raw.githubusercontent：更新快，但国内经常连不上，放最后。
+ */
+export const BUNDLE_FEEDS = [
+  'https://tera-dark.github.io/gzzk-trainer/bundle.json',
+  'https://cdn.jsdelivr.net/gh/Tera-Dark/gzzk-trainer@main/bundle.json',
+  'https://raw.githubusercontent.com/Tera-Dark/gzzk-trainer/main/bundle.json',
+]
+
+/** 兼容旧引用，指向首选源 */
+export const BUNDLE_FEED = BUNDLE_FEEDS[0]
 
 export interface BundleInfo {
   version: string
@@ -28,14 +42,28 @@ export function isNative(): boolean {
   }
 }
 
+/** 并发读所有源，取版本号最新的那份（各源缓存不同步时不会误判「已是最新」） */
 export async function fetchBundleInfo(): Promise<BundleInfo | null> {
-  try {
-    const res = await fetch(`${BUNDLE_FEED}?t=${Date.now()}`, { cache: 'no-store' })
-    if (!res.ok) return null
-    return (await res.json()) as BundleInfo
-  } catch {
-    return null
+  const ts = Date.now()
+  const list = await Promise.all(
+    BUNDLE_FEEDS.map(async (feed) => {
+      try {
+        const sep = feed.includes('?') ? '&' : '?'
+        const res = await fetch(`${feed}${sep}t=${ts}`, { cache: 'no-store' })
+        if (!res.ok) return null
+        const info = (await res.json()) as BundleInfo
+        return info?.version ? info : null
+      } catch {
+        return null
+      }
+    })
+  )
+  let best: BundleInfo | null = null
+  for (const info of list) {
+    if (!info) continue
+    if (!best || isNewerVersion(info.version, best.version)) best = info
   }
+  return best
 }
 
 export async function currentBundleId(): Promise<string | null> {

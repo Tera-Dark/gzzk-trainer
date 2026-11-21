@@ -45,7 +45,7 @@ release/             本地 APK / 热更新包（git 忽略）
 - 前端改动只进 `app/src/`；`dist/`、`app/android/app/src/main/assets/public/` 都是生成物。
 - 不要删 `app/android/init-mirrors.gradle`：国内访问 Maven Central 会 403，靠它走阿里云镜像。
 - 不要在仓库路径里直接跑 gradle，用 `C:/gzzk-build` 联接。
-- 更新清单走 jsDelivr（`content.ts` 的 `RELEASE_BASE`、`liveUpdate.ts` 的 `BUNDLE_FEED`），因为 GitHub Pages 不返回 CORS 头。
+- 热更新清单有三个源（`liveUpdate.ts` 的 `BUNDLE_FEEDS`）：GitHub Pages（首选，600 秒缓存）→ jsDelivr（兜底）→ raw.githubusercontent（兜底）。`make-bundle.mjs` 会把清单同时写到根目录和 `app/public/bundle.json`，Pages 那份才让 App 读得到。别只依赖 jsDelivr：它把 `@main` 解析到的 commit 缓存十几个小时，发完版仍会读到旧清单。`content.ts` 的 `RELEASE_BASE`（APK 清单）仍走 jsDelivr，因为 APK 版本不常变。
 - 作答页的键盘/吸顶行为靠 `body` 上的 `typing`、`stemDock`、`stemClip` 三个类，由 `AnswerInput` 挂载和清理；改样式前先读懂 `styles.css` 的「竖屏作答」一节。
 - 写作素材是手写内容，只改 `app/src/lib/writing.ts`（不要放进 `app/public/data`，会被 pipeline 覆盖）；每份材料是一个 `WritingDoc`，章节即页面上的卡片，`id` 要唯一且稳定。
 

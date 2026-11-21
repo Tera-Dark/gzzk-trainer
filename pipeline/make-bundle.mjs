@@ -42,9 +42,15 @@ if (process.platform === 'win32') {
 
 const url = `https://github.com/Tera-Dark/gzzk-trainer/releases/download/v${version}/${zipName}`
 const feed = { version, url, notes }
-fs.writeFileSync(path.join(ROOT, 'bundle.json'), JSON.stringify(feed, null, 2) + '\n')
+const feedJson = JSON.stringify(feed, null, 2) + '\n'
+// 根目录这份是仓库里的记录；app/public 那份会跟着站点发布到 GitHub Pages，
+// App 端优先从这个地址读（jsDelivr 的 @main 缓存太久，不可靠）。
+fs.writeFileSync(path.join(ROOT, 'bundle.json'), feedJson)
+fs.writeFileSync(path.join(ROOT, 'app', 'public', 'bundle.json'), feedJson)
 
 console.log(`\n热更新包: ${zipPath}  (${(fs.statSync(zipPath).size / 1048576).toFixed(1)} MB)`)
 console.log('下一步：')
 console.log(`  1) gh release create v${version} "${zipPath}" --title "v${version}" --notes "${notes || '更新'}"`)
-console.log('  2) git add bundle.json && git commit -m "发布 v' + version + '" && git push')
+console.log('  2) git add bundle.json app/public/bundle.json app/src/lib/content.ts')
+console.log('     && git commit -m "发布 v' + version + '" && git push')
+console.log('  3) 等 Pages 部署完（gh run watch），App 端 10 分钟内就能查到')
