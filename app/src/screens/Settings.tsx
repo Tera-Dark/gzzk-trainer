@@ -13,6 +13,7 @@ import {
   type UpdateState,
   type VersionInfo,
 } from '../lib/content'
+import { checkNativeUpdate, isNative, reloadNative } from '../lib/liveUpdate'
 
 export function SettingsScreen() {
   useDB()
@@ -24,6 +25,9 @@ export function SettingsScreen() {
   const [upd, setUpd] = useState<UpdateState>({ kind: 'idle' })
   const [ver, setVer] = useState(db.contentVersion() ?? '')
   const [appUpd, setAppUpd] = useState<AppUpdateInfo | 'checking' | 'latest' | null>(null)
+  const [nativeMsg, setNativeMsg] = useState('')
+  const [nativeBusy, setNativeBusy] = useState(false)
+  const [nativeReady, setNativeReady] = useState<string | null>(null)
 
   useEffect(() => {
     void (async () => {
@@ -249,6 +253,36 @@ export function SettingsScreen() {
           <div className="tiny muted" style={{ marginTop: 8 }}>
             已是最新版（v{APP_VERSION}）
           </div>
+        )}
+        {isNative() && (
+          <>
+            <button
+              className="btn wide"
+              style={{ marginTop: 8 }}
+              disabled={nativeBusy}
+              onClick={async () => {
+                setNativeBusy(true)
+                setNativeReady(null)
+                setNativeMsg('检查中…')
+                const r = await checkNativeUpdate((p) => setNativeMsg(`下载中 ${p}%`))
+                setNativeBusy(false)
+                if (r.kind === 'ready') {
+                  setNativeReady(r.version)
+                  setNativeMsg(`新版本 v${r.version} 已下载，重启后生效`)
+                } else if (r.kind === 'latest') setNativeMsg(`已是最新（v${r.version}）`)
+                else if (r.kind === 'error') setNativeMsg('连不上更新源，检查一下网络')
+                else setNativeMsg('')
+              }}
+            >
+              {nativeBusy ? '处理中…' : '检查安装包更新'}
+            </button>
+            {nativeMsg && <div className="tiny muted" style={{ marginTop: 8 }}>{nativeMsg}</div>}
+            {nativeReady && (
+              <button className="btn sm primary" style={{ marginTop: 8 }} onClick={() => void reloadNative()}>
+                立即重启生效
+              </button>
+            )}
+          </>
         )}
         {appUpd && typeof appUpd === 'object' && (
           <div className="tiny" style={{ marginTop: 8, lineHeight: 1.7 }}>

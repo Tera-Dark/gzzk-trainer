@@ -17,6 +17,7 @@ import {
   type AppUpdateInfo,
   type UpdateState,
 } from './lib/content'
+import { checkNativeUpdate, isNative, reloadNative } from './lib/liveUpdate'
 
 function UpdateBanner() {
   const [st, setSt] = useState<UpdateState | null>(null)
@@ -75,6 +76,49 @@ function UpdateBanner() {
         }}
       >
         {busy ? '更新中…' : '立即更新'}
+      </button>
+    </div>
+  )
+}
+
+function NativeUpdateBanner() {
+  const [ready, setReady] = useState<{ version: string; notes?: string } | null>(null)
+  const [busy, setBusy] = useState(false)
+
+  useEffect(() => {
+    if (!isNative()) return
+    let alive = true
+    void (async () => {
+      const r = await checkNativeUpdate()
+      if (alive && r.kind === 'ready') setReady({ version: r.version, notes: r.notes })
+    })()
+    return () => {
+      alive = false
+    }
+  }, [])
+
+  if (!ready) return null
+  return (
+    <div className="updBanner">
+      <div className="txt">
+        <b>新版本已准备好</b>
+        <span>
+          v{ready.version}
+          {ready.notes ? ` · ${ready.notes}` : ''} · 重启后生效
+        </span>
+      </div>
+      <button className="btn sm" onClick={() => setReady(null)} disabled={busy}>
+        稍后
+      </button>
+      <button
+        className="btn sm primary"
+        disabled={busy}
+        onClick={async () => {
+          setBusy(true)
+          await reloadNative()
+        }}
+      >
+        {busy ? '重启中…' : '立即重启'}
       </button>
     </div>
   )
@@ -252,6 +296,7 @@ export function App() {
 
   return (
     <>
+      <NativeUpdateBanner />
       <AppUpdateBanner />
       <UpdateBanner />
       {page}
