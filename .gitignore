@@ -1,0 +1,24 @@
+# 依赖与构建产物
+node_modules/
+app/dist/
+app/tsconfig.tsbuildinfo
+__pycache__/
+*.pyc
+
+# 内容分发包（由 pipeline/publish.py 生成，可随时重建）
+content/
+
+# 原始真题 docx（体积大，修改题库时再单独放回来）
+广州/
+
+# 本地环境与临时文件
+.env
+.env.*
+!.env.example
+.cloud-attachments/
+.DS_Store
+Thumbs.db
+*.log
+
+# 本地预览截图
+screenshot-*.png
