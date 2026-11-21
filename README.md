@@ -106,8 +106,10 @@ node pipeline/make-bundle.mjs 1.0.1 "修了错题本分页"
 gh release create v1.0.1 release/gzzk-bundle-1.0.1.zip --title v1.0.1 --notes "…"
 git add bundle.json && git commit -m "发布 v1.0.1" && git push
 
-# 改了原生插件 → 重新出 APK
-cd app && npx cap sync android && cd ../android && ./gradlew.bat assembleDebug
+# 改了原生插件 → 重新出 APK（gradle 走 ASCII 联接）
+cd app && npx cap sync android
+cd C:/gzzk-build/app/android
+./gradlew.bat --init-script init-mirrors.gradle assembleDebug
 ```
 
 ## 已知情况
@@ -120,4 +122,5 @@ cd app && npx cap sync android && cd ../android && ./gradlew.bat assembleDebug
 ## 当前状态（2026-11-21）
 
 - v1.0.0 已发布：GitHub Release 有 APK，Pages 站点在线，热更新通道打通。
+- 网页版已上线竖屏作答改造和「写作素材」板块；APK 里还是 v1.0.0 的版本，需要发一次热更新才能同步。
 - 尚未在真机上跑通「安装 → 收更新 → 重启生效」全链路。
