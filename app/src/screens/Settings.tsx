@@ -235,6 +235,20 @@ export function SettingsScreen() {
           </div>
           <div style={{ textAlign: 'right', width: 'auto', fontVariantNumeric: 'tabular-nums' }}>v{APP_VERSION}</div>
         </div>
+        <div style={{ marginTop: 12 }}>
+          <div style={{ fontSize: 12.5, color: 'var(--muted)', marginBottom: 6 }}>
+            更新源地址（留空 = 自动在 GitHub Pages / jsDelivr / 国内加速线路之间切换）
+          </div>
+          <input
+            className="textInput"
+            placeholder="https://xxx.cos.ap-guangzhou.myqcloud.com/gzzk/"
+            defaultValue={s.updateBase}
+            onBlur={(e) => {
+              db.updateSettings({ updateBase: e.target.value.trim() })
+              setMsg('更新源已保存')
+            }}
+          />
+        </div>
         <button
           className="btn wide"
           style={{ marginTop: 12 }}
@@ -270,7 +284,8 @@ export function SettingsScreen() {
                   setNativeReady(r.version)
                   setNativeMsg(`新版本 v${r.version} 已下载，重启后生效`)
                 } else if (r.kind === 'latest') setNativeMsg(`已是最新（v${r.version}）`)
-                else if (r.kind === 'error') setNativeMsg('连不上更新源，检查一下网络')
+                else if (r.kind === 'error')
+                  setNativeMsg('连不上任何更新源（GitHub 在国内常被屏蔽），换个网络，或在上面填一个国内更新源')
                 else setNativeMsg('')
               }}
             >

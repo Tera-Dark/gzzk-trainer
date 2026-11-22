@@ -8,6 +8,7 @@
 ```bash
 cd app && npm install && npm run dev        # 开发服务器 5180
 cd app && npm run build && cd .. && node serve.mjs 8080   # 本地成品
+python pipeline/audit.py                    # 全量自检（只读，报告写 pipeline/audit-report.txt）
 ```
 
 Android 构建（**必须走 ASCII 路径**，仓库路径含中文会被 AGP 拒绝）：
@@ -42,11 +43,11 @@ release/             本地 APK / 热更新包（git 忽略）
 
 - **别手改 `app/public/data`**：题库只能由 pipeline 生成，否则下次重建就丢。
 - `finalize.py` 会在写盘前做五件事，改抽取逻辑时要一起维持：①题干/材料里被填好的答案（`<u>百草丰茂</u>`、`流lián`）擦成下划线空位；②“正确的两项”这类多选题清掉 `answerKey` 并打 `multi`，前端改为看答案自评；③考点只保留 `RULES` 里定过的口径（`CANON`），解析里的口语化垃圾标签不进 `tags.json`；④题量明显少于同科最近三年中位数的卷子标 `incomplete`，前端只给练习、不给模考；⑤丢掉抽取残渣（行首是考场须知/答题卡说明、题干是解析原文、没有题干也没材料、选项不足两个），并在选项尾部清掉表格竖线和 `A. A B. B …` 答案对照行。多选题判定只用「正确的两项/三项、不定项」这类真题干措辞，不能再匹配「多选或涂改不清」这种考场说明。
-- 三个版本号各管一件事：`APP_VERSION`（`content.ts`）是当前代码版本，每次发版都改；`bundle.json` 是热更新包版本，与 `APP_VERSION` 一致；`app/public/app-update.json` 是**最新 APK** 的版本，只在真的重新出了安装包时才改——热更新时把它改高会让用户去下不存在的 APK。
+- 三个版本号各管一件事：`APP_VERSION`（`content.ts`）是当前代码版本，每次发版都改；`bundle.json` 是热更新包版本，平时与 `APP_VERSION` 一致；`app/public/app-update.json` 是**最新 APK** 的版本，只在真的重新出了安装包时才改——热更新时把它改高会让用户去下不存在的 APK。顺序永远是：改代码 → 打 APK / 热更新包 → 传 release → 再 bump 这两个清单；先 bump 清单会让已装用户去下不存在的文件。
 - 前端改动只进 `app/src/`；`dist/`、`app/android/app/src/main/assets/public/` 都是生成物。
 - 不要删 `app/android/init-mirrors.gradle`：国内访问 Maven Central 会 403，靠它走阿里云镜像。
 - 不要在仓库路径里直接跑 gradle，用 `C:/gzzk-build` 联接。
-- 热更新清单有三个源（`liveUpdate.ts` 的 `BUNDLE_FEEDS`）：GitHub Pages（首选，600 秒缓存）→ jsDelivr（兜底）→ raw.githubusercontent（兜底）。`make-bundle.mjs` 会把清单同时写到根目录和 `app/public/bundle.json`，Pages 那份才让 App 读得到。别只依赖 jsDelivr：它把 `@main` 解析到的 commit 缓存十几个小时，发完版仍会读到旧清单。`content.ts` 的 `RELEASE_BASES`（APK 清单）同样 Pages 优先、jsDelivr 兜底。
+- 更新是给国内网络用的，别只留 GitHub。清单（`liveUpdate.ts` 的 `STATIC_FEEDS`、`content.ts` 的 `RELEASE_BASES`）并发读多条线路：GitHub Pages → jsDelivr 两个节点 → raw.githubusercontent → raw 套 GitHub 加速前缀；每条约 6 秒超时，取版本号最新的那份。热更新包本体在 `github.com/releases` → `objects.githubusercontent.com`，国内基本拿不到，所以 `downloadCandidates()` 会把清单里的 `urls`（`make-bundle.mjs` 写入直链 + `ghfast.top` + `gh-proxy.com`）逐条重试，成功的那条记进 `localStorage['gzzk.bundle.mirror']`，下次优先用。设置页的「更新源地址」(`settings.updateBase`) 填了就走国内对象存储，优先级最高——真要稳定，就把 `bundle.json` 和 zip 传一份到腾讯云 COS / 阿里云 OSS，再把这个地址填上，不用改代码。`make-bundle.mjs` 会把清单同时写到根目录和 `app/public/bundle.json`，Pages 那份才让 App 读得到。别只依赖 jsDelivr：它把 `@main` 解析到的 commit 缓存十几个小时，发完版仍会读到旧清单。
 - 作答页的键盘/吸顶行为靠 `body` 上的 `typing`、`stemDock`、`stemClip` 三个类，由 `AnswerInput` 挂载和清理；改样式前先读懂 `styles.css` 的「竖屏作答」一节。
 - 写作素材是手写内容，只改 `app/src/lib/writing.ts`（不要放进 `app/public/data`，会被 pipeline 覆盖）；每份材料是一个 `WritingDoc`，章节即页面上的卡片，`id` 要唯一且稳定。
 
@@ -58,11 +59,12 @@ release/             本地 APK / 热更新包（git 忽略）
 | App 版本 | `app-update.json` | 顶部「App 有新版本 → 去更新」，跳发布页 |
 | 热更新 | 根 `bundle.json` | 后台下包，顶部「立即重启」生效，不重装 |
 
-## 当前状态（2026-11-21）
+## 当前状态（2026-11-22）
 
-- v1.0.0 已发布：APK 在 GitHub Release，Pages 站点在线，热更新通道已接通。
-- 网页版已包含竖屏作答改造（`953a2cc`）与写作素材板块（`38ccbec`）；APK 仍是 v1.0.0，需发 v1.0.1 热更新才能同步给已安装用户。
+- Pages 站点在线，热更新通道已接通；题库 67 卷 1679 题（`version.json` 已同步到 `20261122-1`）。
+- `pipeline/audit.py` 是唯一的数据自检入口：结构、题目 id、答案泄露、选项、多选标记、上下文、考点口径、index/questions/tags 一致性、version.json、图片存在性、跨卷重复题干、异常字符、分值合计。报告按错误代码聚合，有 error 时退出码 1。最近一次结果：1 error（`version.json` 题数过期，已随 `20261122-1` 修掉）/ 45 warning / 1986 info。
+- 更新链路已改成多线路：清单并发读 GitHub Pages、jsDelivr 双节点、raw.githubusercontent 及其加速前缀，包体在直链 / `ghfast.top` / `gh-proxy.com` 之间逐条重试，成功那条记进 `localStorage`；设置页可填国内对象存储地址。**已装的 v1.0.1 没有这套逻辑，改动只能靠重装新 APK 送达。**
+- APK 代码版本已到 v1.0.2（`versionCode 3`），本轮只本地编译，还没传 release，所以 `bundle.json` 与 `app-update.json` 仍是 1.0.1。
 - 未在真机验证过安装与更新全链路；APK 目前是 debug 签名。
-- 使用视角走查后的一轮修复（待发版）：答案泄漏清洗 176 处、考点从 134/200/169 个收敛到 13/15/6 个、4 道「正确的两项」改自评、3 张残缺卷禁模考、错题重做点「跳过」不再抹掉错题、手写专项剔除选择题、数字文案与键盘可达性。
-- 二次自检后又清掉 28 条抽取残渣（chemistry-2021 前 4 条考场须知、english-2019 语法选择段 19 条、politics-2018 2 条），题库现为 66 套 1679 题；politics-2017 q20 曾被误判为多选，现已恢复单选出题与自动判分。
-- 下一步候选：发 v1.0.2 热更新 + APK、正式签名（keystore + assembleRelease）、真机回归。
+- 已知数据问题（未修，都在 `english-2019` 等老卷上）：`english-2019` q16–q24 题干是选项列表、q40/q63 题干带逐题答案、22 题 section 为空；8 道题 `blank` 带选项（界面按填空渲染）；6 道英语书面表达被判成选择题；`chemistry-2020-q09`/`chemistry-2024-q06` 选项 B 为空；19 道选择题无 `answerKey`（前端降级为自评），44 道非选择题零答案。
+- 下一步候选：修上述数据问题（改 `finalize.py` 而非手改 JSON）、发 v1.0.2 release + 热更新、正式签名（keystore + assembleRelease）、真机回归。

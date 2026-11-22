@@ -41,7 +41,10 @@ if (process.platform === 'win32') {
 }
 
 const url = `https://github.com/Tera-Dark/gzzk-trainer/releases/download/v${version}/${zipName}`
-const feed = { version, url, notes }
+// 国内直连 github.com / objects.githubusercontent.com 基本拿不到包本体，
+// 多写几条加速线路；App 按顺序试，成功的那条记在本地，下次优先用。
+const urls = [url, `https://ghfast.top/${url}`, `https://gh-proxy.com/${url}`]
+const feed = { version, url, urls, notes }
 const feedJson = JSON.stringify(feed, null, 2) + '\n'
 // 根目录这份是仓库里的记录；app/public 那份会跟着站点发布到 GitHub Pages，
 // App 端优先从这个地址读（jsDelivr 的 @main 缓存太久，不可靠）。

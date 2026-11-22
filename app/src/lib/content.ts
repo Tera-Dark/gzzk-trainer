@@ -1,5 +1,6 @@
 import { BASE } from './data'
 import * as db from './db'
+import { dedupe, fetchJsonAll, fetchWithTimeout, proxied } from './mirrors'
 
 /** 内容来源：默认跟 App 同源；也可指向远程静态目录（末尾自动补 /） */
 export function activeBase(): string {
@@ -83,7 +84,7 @@ export interface VersionInfo {
 
 export async function fetchVersion(base = activeBase()): Promise<VersionInfo | null> {
   try {
-    const res = await fetch(`${base}data/version.json?t=${Date.now()}`, { cache: 'no-store' })
+    const res = await fetchWithTimeout(`${base}data/version.json?t=${Date.now()}`, 8000, { cache: 'no-store' })
     if (!res.ok) return null
     return (await res.json()) as VersionInfo
   } catch {
@@ -94,11 +95,13 @@ export async function fetchVersion(base = activeBase()): Promise<VersionInfo | n
 /* ---------- App 自身版本（原生包 / 安装版用） ---------- */
 
 /** 当前安装的 App 版本；每次发版改这里 + app/public/app-update.json */
-export const APP_VERSION = '1.0.1'
+export const APP_VERSION = '1.0.2'
 
 export interface AppUpdateInfo {
   version: string
   url: string
+  /** 多个下载地址（直链 + 国内加速线路），按顺序试 */
+  urls?: string[]
   notes?: string
   releasedAt?: string
 }
@@ -110,28 +113,38 @@ export interface AppUpdateInfo {
 export const RELEASE_BASES = [
   'https://tera-dark.github.io/gzzk-trainer/',
   'https://cdn.jsdelivr.net/gh/Tera-Dark/gzzk-trainer@main/app/public/',
+  'https://raw.githubusercontent.com/Tera-Dark/gzzk-trainer/main/app/public/',
 ]
 
 /** 兼容旧引用，指向首选源 */
 export const RELEASE_BASE = RELEASE_BASES[0]
 
-export async function fetchAppUpdate(): Promise<AppUpdateInfo | null> {
-  // 先问线上发行地址（原生包内部只有副本，必须去线上比对），再退回当前内容源
-  const bases = [...RELEASE_BASES, activeBase()]
-  let best: AppUpdateInfo | null = null
-  await Promise.all(
-    bases.map(async (base) => {
-      try {
-        const res = await fetch(`${base}app-update.json?t=${Date.now()}`, { cache: 'no-store' })
-        if (!res.ok) return
-        const info = (await res.json()) as AppUpdateInfo
-        if (!info?.version) return
-        if (!best || isNewerVersion(info.version, best.version)) best = info
-      } catch {
-        /* 试下一个来源 */
-      }
-    })
+/** 用户自填的更新源（国内对象存储之类），空串表示没填 */
+export function updateBase(): string {
+  return (db.settings().updateBase || '').trim()
+}
+
+/**
+ * 所有能读到 app-update.json 的地址：自填源 → 官方线路 → GitHub 加速线路 → 当前内容源。
+ * 国内直连 GitHub 常被屏蔽，官方线路和加速线路都留着，谁先回包用谁。
+ */
+function appUpdateUrls(): string[] {
+  const custom = updateBase()
+  const bases = [...(custom ? [custom] : []), ...RELEASE_BASES, activeBase()].map((b) =>
+    b.endsWith('/') ? b : b + '/'
   )
+  const urls = bases.map((b) => `${b}app-update.json`)
+  return dedupe([...urls, ...urls.flatMap((u) => proxied(u))])
+}
+
+export async function fetchAppUpdate(): Promise<AppUpdateInfo | null> {
+  // 原生包里只有一份副本，必须去线上比对版本；国内线路经常连不通，所以全部并发试
+  const list = await fetchJsonAll<AppUpdateInfo>(appUpdateUrls(), 6000)
+  let best: AppUpdateInfo | null = null
+  for (const info of list) {
+    if (!info?.version) continue
+    if (!best || isNewerVersion(info.version, best.version)) best = info
+  }
   return best
 }
 
@@ -180,13 +193,13 @@ export async function applyUpdate(remote: VersionInfo, onProgress?: (done: numbe
     location.reload()
     return
   }
-  const index = await (await fetch(`${base}data/index.json?t=${Date.now()}`, { cache: 'no-store' })).json()
+  const index = await (await fetchWithTimeout(`${base}data/index.json?t=${Date.now()}`, 15000, { cache: 'no-store' })).json()
   const ids: string[] = (index.papers || []).map((p: { id: string }) => p.id)
   const files = ['index.json', 'questions.json', 'tags.json', 'version.json', ...ids.map((id) => `${id}.json`)]
   let done = 0
   await idbClear()
   for (const f of files) {
-    const res = await fetch(`${base}data/${f}?t=${Date.now()}`, { cache: 'no-store' })
+    const res = await fetchWithTimeout(`${base}data/${f}?t=${Date.now()}`, 15000, { cache: 'no-store' })
     if (res.ok) await idbPut('data/' + f, await res.text())
     done += 1
     onProgress?.(done, files.length)

@@ -42,6 +42,8 @@ export interface Settings {
   name: string
   /** 内容来源：空 = 跟 App 同源；也可填远程静态地址，如 https://cdn.xx.com/gzzk/ */
   contentBase: string
+  /** 更新源：空 = 自动在 GitHub Pages / jsDelivr / 加速线路里挑；也可填国内静态地址 */
+  updateBase: string
   autoUpdate: boolean
 }
 
@@ -77,6 +79,7 @@ function defaults(): DB {
       dailyGoal: 20,
       name: '',
       contentBase: '',
+      updateBase: '',
       autoUpdate: true,
     },
     xp: 0,

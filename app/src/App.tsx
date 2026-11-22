@@ -164,7 +164,8 @@ function AppUpdateBanner() {
       <button
         className="btn sm primary"
         onClick={() => {
-          if (info.url) window.open(info.url, '_blank', 'noopener')
+          const url = info.urls?.[0] ?? info.url
+          if (url) window.open(url, '_blank', 'noopener')
         }}
       >
         去更新
