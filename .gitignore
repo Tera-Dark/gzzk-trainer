@@ -20,6 +20,9 @@ content/
 Thumbs.db
 *.log
 
+# 审计报告（pipeline/audit.py 生成，可随时重跑）
+pipeline/audit-report.txt
+
 # 本地预览截图
 screenshot-*.png
 
