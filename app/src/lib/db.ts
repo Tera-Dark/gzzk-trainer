@@ -54,7 +54,7 @@ export interface DB {
   bookmarks: string[]
   exams: ExamRecord[]
   settings: Settings
-  lastQuestion?: { pid: string; no: number }
+  lastQuestion?: { pid: string; no: number; qid?: string }
   xp: number
   /** 每日 XP：{ '2026-11-20': 45 } */
   daily: Record<string, number>
@@ -178,6 +178,19 @@ export function record(
   emit()
 }
 
+/** 撤销刚记录的一次作答（选择题误触用）：回滚做题记录、SRS 卡和 XP */
+export function undoRecord(qid: string, prevCard: SrsCard | undefined, xpBefore: number, dayXpBefore: number) {
+  const last = db.attempts[db.attempts.length - 1]
+  if (last && last.qid === qid) db.attempts.pop()
+  if (prevCard) db.srs[qid] = prevCard
+  else delete db.srs[qid]
+  db.xp = Math.max(0, xpBefore)
+  const k = dayKey()
+  if (dayXpBefore > 0) db.daily[k] = dayXpBefore
+  else delete db.daily[k]
+  emit()
+}
+
 export function gradeOf(qid: string): Grade | undefined {
   return db.srs[qid]?.last
 }
@@ -231,8 +244,8 @@ export function exams(): ExamRecord[] {
   return db.exams
 }
 
-export function setLast(pid: string, no: number) {
-  db.lastQuestion = { pid, no }
+export function setLast(pid: string, no: number, qid?: string) {
+  db.lastQuestion = { pid, no, qid }
   persist()
 }
 
@@ -269,9 +282,11 @@ export function xpToday(): number {
 }
 
 export function streakDays(): number {
+  // 和数据页同口径：按「有作答记录的天数」算，避免答错 0 XP 时首页显示断签
+  const days = new Set(db.attempts.map((a) => dayKey(a.ts)))
   let n = 0
   for (let i = 0; i < 400; i++) {
-    if ((db.daily[dayKey(Date.now() - i * DAY)] ?? 0) > 0) n++
+    if (days.has(dayKey(Date.now() - i * DAY))) n++
     else if (i > 0) break
   }
   return n

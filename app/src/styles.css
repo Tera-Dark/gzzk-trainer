@@ -1379,6 +1379,19 @@ button.pathCard {
 }
 
 /* ---------- 更新提醒 ---------- */
+/* 多条提示上下排列，整体吸顶；单独一条时行为和以前一样 */
+.updStack {
+  position: sticky;
+  top: 0;
+  z-index: 60;
+  padding-top: env(safe-area-inset-top);
+}
+.updStack:empty {
+  display: none;
+}
+.updStack .updBanner {
+  position: static;
+}
 .updBanner {
   position: sticky;
   top: 0;

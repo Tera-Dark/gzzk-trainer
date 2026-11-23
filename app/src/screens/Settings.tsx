@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { loadIndex, loadQuestions } from '../lib/data'
+import { loadIndex } from '../lib/data'
 import * as db from '../lib/db'
 import { useDB, useToast, Toast } from '../ui'
 import {
@@ -28,6 +28,7 @@ export function SettingsScreen() {
   const [nativeMsg, setNativeMsg] = useState('')
   const [nativeBusy, setNativeBusy] = useState(false)
   const [nativeReady, setNativeReady] = useState<string | null>(null)
+  const [showAdvanced, setShowAdvanced] = useState(false)
 
   useEffect(() => {
     void (async () => {
@@ -53,7 +54,9 @@ export function SettingsScreen() {
   const loaded = useRef(false)
   if (!loaded.current) {
     loaded.current = true
-    void Promise.all([loadIndex(), loadQuestions()]).then(([i, q]) => setStats({ papers: i.length, questions: q.length }))
+    void loadIndex().then((i) =>
+      setStats({ papers: i.length, questions: i.reduce((n, p) => n + p.count, 0) })
+    )
   }
 
   return (
@@ -160,6 +163,12 @@ export function SettingsScreen() {
         </button>
       </div>
 
+      <button className="btn wide" style={{ marginTop: 2 }} onClick={() => setShowAdvanced((v) => !v)}>
+        {showAdvanced ? '收起高级设置' : '高级设置：更新与内容源'}
+      </button>
+
+      {showAdvanced && (
+        <>
       <div className="card">
         <div className="cardTitle">内容更新</div>
         <div className="settingRow">
@@ -310,6 +319,9 @@ export function SettingsScreen() {
           </div>
         )}
       </div>
+
+        </>
+      )}
 
       <div className="card">
         <div className="cardTitle">题库</div>

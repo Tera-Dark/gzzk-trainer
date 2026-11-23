@@ -13,6 +13,8 @@ interface Props {
   startIndex?: number
   onExit: () => void
   onRestart?: () => void
+  /** 只在「整卷逐题练习」里记录「继续上次」，考点/随机练不覆盖它 */
+  trackLast?: boolean
   /** 关卡：完成时回传结果，用于掌握度升级 */
   tag?: string
   inputMode?: 'type' | 'write' | 'pen'
@@ -24,7 +26,7 @@ const XP_HALF = 4
 const XP_WRONG = 1
 const XP_RETRY = 2
 
-export function QuizScreen({ title, subtitle, items, mode, startIndex = 0, onExit, onRestart, tag, inputMode, onFinish }: Props) {
+export function QuizScreen({ title, subtitle, items, mode, startIndex = 0, onExit, onRestart, tag, inputMode, onFinish, trackLast }: Props) {
   const [queue, setQueue] = useState<LoadedQ[]>(() => items.slice(Math.min(startIndex, Math.max(0, items.length - 1))))
   const [idx, setIdx] = useState(0)
   const [selected, setSelected] = useState<string | null>(null)
@@ -37,8 +39,22 @@ export function QuizScreen({ title, subtitle, items, mode, startIndex = 0, onExi
   const [maxCombo, setMaxCombo] = useState(0)
   const [xp, setXp] = useState(0)
   const [flash, setFlash] = useState<{ kind: 'ok' | 'bad'; text: string } | null>(null)
+  const [undoable, setUndoable] = useState<{
+    qid: string
+    prevCard?: db.SrsCard
+    xpBefore: number
+    dayXpBefore: number
+    tally: typeof tally
+    combo: number
+    maxCombo: number
+    xp: number
+    queueLen: number
+    requeued: boolean
+  } | null>(null)
   const t0 = useRef(Date.now())
   const retried = useRef<Set<string>>(new Set())
+  const submitLock = useRef(false)
+  const undoTimer = useRef<number | undefined>(undefined)
 
   const item = queue[idx]
   const total = queue.length
@@ -47,19 +63,56 @@ export function QuizScreen({ title, subtitle, items, mode, startIndex = 0, onExi
     setSelected(null)
     setRevealed(false)
     setGraded(null)
+    setUndoable(null)
+    submitLock.current = false
     t0.current = Date.now()
     window.scrollTo(0, 0)
   }, [idx])
 
+  useEffect(() => () => {
+    if (undoTimer.current) window.clearTimeout(undoTimer.current)
+  }, [])
+
   useEffect(() => {
     if (item) {
       setMarks((m) => (m[item.q.id] !== undefined ? m : { ...m, [item.q.id]: db.isBookmarked(item.q.id) }))
-      if (mode === 'practice' && item.paper.id) db.setLast(item.paper.id, item.q.no)
+      if (mode === 'practice' && trackLast && item.paper.id) db.setLast(item.paper.id, item.q.no, item.q.id)
     }
   }, [item, mode])
 
+  const undo = () => {
+    const u = undoable
+    if (!u) return
+    db.undoRecord(u.qid, u.prevCard, u.xpBefore, u.dayXpBefore)
+    retried.current.delete(u.qid + ':done')
+    if (u.requeued) {
+      retried.current.delete(u.qid + ':requeue')
+      setQueue((qs) => (qs.length > u.queueLen ? qs.slice(0, u.queueLen) : qs))
+    }
+    setTally(u.tally)
+    setCombo(u.combo)
+    setMaxCombo(u.maxCombo)
+    setXp(u.xp)
+    setGraded(null)
+    setSelected(null)
+    setFlash(null)
+    setUndoable(null)
+    submitLock.current = false
+    if (undoTimer.current) window.clearTimeout(undoTimer.current)
+  }
+
   const submit = (grade: Grade) => {
-    if (!item || graded) return
+    if (!item || graded || submitLock.current) return
+    submitLock.current = true
+    const cardNow = db.srsCard(item.q.id)
+    const prevCard = cardNow ? { ...cardNow } : undefined
+    const xpBefore = db.xpTotal()
+    const dayXpBefore = db.xpToday()
+    const prevTally = tally
+    const prevCombo = combo
+    const prevMaxCombo = maxCombo
+    const prevXp = xp
+    const willRequeue = (grade === 'wrong' || grade === 'half') && !retried.current.has(item.q.id + ':requeue')
     const first = !retried.current.has(item.q.id + ':done')
     // 跳过≠做错：不写记录，否则“错题重排后跳过”会把刚错的题从错题本里抹掉
     if (grade !== 'skip') {
@@ -100,9 +153,27 @@ export function QuizScreen({ title, subtitle, items, mode, startIndex = 0, onExi
     }
 
     // 错了/半对 → 本轮末尾再来一次（每题最多一次）
-    if ((grade === 'wrong' || grade === 'half') && !retried.current.has(item.q.id + ':requeue')) {
+    if (willRequeue) {
       retried.current.add(item.q.id + ':requeue')
       setQueue((qs) => [...qs, item])
+    }
+
+    // 选择题点一下即判，给一个短时间「撤销」，避免误触就记进错题本
+    if (item.q.type === 'choice' && item.q.answerKey) {
+      setUndoable({
+        qid: item.q.id,
+        prevCard,
+        xpBefore,
+        dayXpBefore,
+        tally: prevTally,
+        combo: prevCombo,
+        maxCombo: prevMaxCombo,
+        xp: prevXp,
+        queueLen: queue.length,
+        requeued: willRequeue,
+      })
+      if (undoTimer.current) window.clearTimeout(undoTimer.current)
+      undoTimer.current = window.setTimeout(() => setUndoable(null), 6000)
     }
   }
 
@@ -118,6 +189,8 @@ export function QuizScreen({ title, subtitle, items, mode, startIndex = 0, onExi
 
   const next = () => {
     setFlash(null)
+    setUndoable(null)
+    if (undoTimer.current) window.clearTimeout(undoTimer.current)
     if (idx + 1 >= queue.length) {
       setDone(true)
       const answered = tally.right + tally.half + tally.wrong
@@ -276,6 +349,11 @@ export function QuizScreen({ title, subtitle, items, mode, startIndex = 0, onExi
           </>
         ) : (
           <>
+            {undoable && (
+              <button className="btn sm ghost" onClick={undo} aria-label="撤销本次作答">
+                撤销
+              </button>
+            )}
             {flash && <span className={'flash ' + flash.kind}>{flash.text}</span>}
             <button className="btn primary" style={{ flex: 1 }} onClick={next}>
               {idx + 1 >= total ? '完成本轮' : '继续'}

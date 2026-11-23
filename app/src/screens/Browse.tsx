@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
-import type { Paper, Subject } from '../lib/types'
-import { loadIndex, loadPaper, loadQuestions, SUBJECTS, subjectColor, subjectName } from '../lib/data'
+import type { Paper, Question, Subject } from '../lib/types'
+import { loadIndex, loadPaper, SUBJECTS, subjectColor, subjectName } from '../lib/data'
 import { previewText } from '../lib/md'
 import * as db from '../lib/db'
 import { daysBetween, go, pct, Stat, useDB, useRoute } from '../ui'
@@ -20,10 +20,13 @@ function useAsync<T>(fn: () => Promise<T>, deps: unknown[]): T | null {
   return v
 }
 
+function hasImage(q: Question): boolean {
+  return (q.images?.length ?? 0) > 0 || /<img|papers\//i.test(q.stemHtml || q.stem || '')
+}
+
 export function Home() {
   useDB()
   const index = useAsync(loadIndex, [])
-  const flat = useAsync(loadQuestions, [])
   const s = db.settings()
   const today = db.todayStats()
   const due = db.dueCount()
@@ -35,14 +38,23 @@ export function Home() {
   const goalPct = Math.min(100, Math.round((xpDay / Math.max(20, s.dailyGoal * 5)) * 100))
   const streak = db.streakDays()
 
-  const bySubject = useMemo(() => {
-    if (!flat) return []
+  // 题数从 index 汇总，不再为了计数拉 428KB 的 questions.json
+  const incompleteLatest = useMemo(() => {
+    if (!index) return []
     return SUBJECTS.map((sub) => {
-      const qs = flat.filter((q) => q.s === sub.key)
+      const latest = index.filter((p) => p.subject === sub.key).sort((a, b) => b.year - a.year)[0]
+      return latest?.incomplete ? `${sub.name} ${latest.year}` : null
+    }).filter((x): x is string => !!x)
+  }, [index])
+
+  const bySubject = useMemo(() => {
+    if (!index) return []
+    return SUBJECTS.map((sub) => {
+      const count = index.filter((p) => p.subject === sub.key).reduce((n, p) => n + p.count, 0)
       const st = db.subjectStats(sub.key)
-      return { ...sub, count: qs.length, covered: st.covered, accuracy: st.accuracy, total: st.total }
+      return { ...sub, count, covered: st.covered, accuracy: st.accuracy, total: st.total }
     })
-  }, [flat, today.count])
+  }, [index, today.count])
 
   return (
     <div className="app">
@@ -90,10 +102,7 @@ export function Home() {
 
       <div className="card tight dailyCard">
         <div className="dailyTop">
-          <span>
-            今日 {xpDay} XP
-            <span className="tiny muted"> / 目标 {Math.max(20, s.dailyGoal * 5)}</span>
-          </span>
+          <span>今日 {xpDay} XP</span>
           <span className="tiny muted">连续 {streak} 天</span>
         </div>
         <div className="dailyBar">
@@ -124,11 +133,21 @@ export function Home() {
         <div className="card tight" style={{ display: 'flex', gap: 10 }}>
           {due > 0 && (
             <button className="btn primary" style={{ flex: 1 }} onClick={() => go('/review')}>
-              复习 {due} 张到期卡片
+              复习 {due} 题
             </button>
           )}
           {last && (
-            <button className="btn" style={{ flex: 1 }} onClick={() => go(`/practice/${last.pid}?start=${last.no}`)}>
+            <button
+              className="btn"
+              style={{ flex: 1 }}
+              onClick={() =>
+                go(
+                  `/practice/${last.pid}?${
+                    last.qid ? `qid=${encodeURIComponent(last.qid)}` : `start=${Math.max(0, (last.no ?? 1) - 1)}`
+                  }`
+                )
+              }
+            >
               继续上次
             </button>
           )}
@@ -203,15 +222,20 @@ export function Home() {
             )
           })}
         </div>
+        {incompleteLatest.length > 0 && (
+          <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 10, lineHeight: 1.7 }}>
+            {incompleteLatest.join('、')} 题量不全，模考自动使用上一年完整卷。
+          </div>
+        )}
         <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 10 }}>
-          点一下就开始计时，交卷自动判选择题并估算总分
+          点一下先看卷面信息，确认后开始计时；交卷自动判选择题并估算总分
         </div>
       </div>
 
       <div className="card">
         <div className="cardTitle">数据一览</div>
         <div className="statRow">
-          <Stat v={flat?.length ?? '—'} k="真题总题数" />
+          <Stat v={index ? index.reduce((n, p) => n + p.count, 0) : '—'} k="真题总题数" />
           <Stat v={index?.length ?? '—'} k="试卷套数" />
           <Stat v={db.exams().length} k="模考次数" />
         </div>
@@ -223,7 +247,6 @@ export function Home() {
 export function Papers() {
   useDB()
   const index = useAsync(loadIndex, [])
-  const flat = useAsync(loadQuestions, [])
   return (
     <div className="app">
       <div className="pageHead">
@@ -232,7 +255,7 @@ export function Papers() {
       <div className="grid c2">
         {SUBJECTS.map((sub) => {
           const papers = (index ?? []).filter((p) => p.subject === sub.key)
-          const count = (flat ?? []).filter((q) => q.s === sub.key).length
+          const count = papers.reduce((n, p) => n + p.count, 0)
           const st = db.subjectStats(sub.key)
           return (
             <div
@@ -422,6 +445,7 @@ export function PaperScreen({ pid }: { pid: string }) {
                 style={{ cursor: 'pointer' }}
               >
                 <span className="pill">{q.no}</span>
+                {hasImage(q) && <span className="pill">图</span>}
                 <div className="grow">
                   <div className="d" style={{ marginTop: 0, color: 'var(--text)' }}>
                     {previewText(q.stem, 34)}
@@ -438,23 +462,29 @@ export function PaperScreen({ pid }: { pid: string }) {
   )
 }
 
-export function PracticeScreen({ pid, start, mode }: { pid: string; start: number; mode: db.Mode }) {
+export function PracticeScreen({ pid, start, qid, mode }: { pid: string; start: number; qid?: string; mode: db.Mode }) {
   const paper = useAsync<Paper>(() => loadPaper(pid), [pid])
   const [, nav] = useRoute()
+  const [round, setRound] = useState(0)
   if (!paper) return <div className="empty">加载中…</div>
   const items = paper.questions.map((q) => ({
     q,
     paper,
     context: q.contextId ? paper.contexts.find((c) => c.id === q.contextId) : undefined,
   }))
+  const byId = qid ? paper.questions.findIndex((q) => q.id === qid) : -1
+  const startIndex = byId >= 0 ? byId : Math.max(0, start)
   return (
     <QuizScreen
+      key={`${paper.id}:${startIndex}:${round}`}
       title={paper.title}
       subtitle={`${paper.year} 真题`}
       items={items}
       mode={mode}
-      startIndex={Math.max(0, start)}
+      startIndex={startIndex}
+      trackLast
       onExit={() => nav(`/paper/${paper.id}`)}
+      onRestart={() => setRound((r) => r + 1)}
     />
   )
 }

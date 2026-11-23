@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import type { Subject } from '../lib/types'
-import { loadQuestions, loadQuestionsByIds, loadTags, SUBJECTS, subjectColor, subjectName, type LoadedQ } from '../lib/data'
+import { loadIndex, loadQuestions, loadQuestionsByIds, loadTags, SUBJECTS, subjectColor, subjectName, type LoadedQ } from '../lib/data'
 import * as db from '../lib/db'
 import { go, useDB, useRoute } from '../ui'
 import { QuizScreen } from './Quiz'
@@ -43,7 +43,8 @@ function Crowns({ n }: { n: number }) {
 export function PathHome() {
   useDB()
   const tags = useAsync(loadTags, [])
-  const flat = useAsync(loadQuestions, [])
+  // 题数按 index 口径统计（与首页/题库一致），不为计数去拉整份 questions.json
+  const index = useAsync(loadIndex, [])
   return (
     <div className="app">
       <div className="pageHead">
@@ -64,7 +65,7 @@ export function PathHome() {
       {SUBJECTS.map((sub) => {
         const list = tags?.[sub.key] ?? []
         if (!list.length) return null
-        const total = flat?.filter((q) => q.s === sub.key).length ?? 0
+        const total = index?.filter((p) => p.subject === sub.key).reduce((n, p) => n + p.count, 0) ?? 0
         const done = db.subjectStats(sub.key).covered
         return (
           <button key={sub.key} className="card pathCard" onClick={() => go(`/path/${sub.key}`)}>

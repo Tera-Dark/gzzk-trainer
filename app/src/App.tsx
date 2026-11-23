@@ -127,14 +127,37 @@ function NativeUpdateBanner() {
 
 function AppUpdateBanner() {
   const [info, setInfo] = useState<AppUpdateInfo | null>(null)
-  const [closed, setClosed] = useState(() => sessionStorage.getItem('gzzk.appUpdate.skip') !== null)
+  const [closed, setClosed] = useState(() => {
+    const ts = Number(localStorage.getItem('gzzk.appUpdate.skip') || 0)
+    return ts > Date.now() - 24 * 3600 * 1000
+  })
 
   useEffect(() => {
     if (closed) return
     let alive = true
+    const CACHED = 'gzzk.appUpdate.cached'
+    const AT = 'gzzk.appUpdate.at'
+    // 六小时内先看本机缓存，避免每次打开都并发请求多条外网线路
+    try {
+      const cached = localStorage.getItem(CACHED)
+      const at = Number(localStorage.getItem(AT) || 0)
+      if (cached && Date.now() - at < 6 * 3600 * 1000) {
+        const c = JSON.parse(cached) as AppUpdateInfo
+        if (c?.version && isNewerVersion(c.version, APP_VERSION)) setInfo(c)
+        return
+      }
+    } catch {
+      /* ignore */
+    }
     void (async () => {
       const r = await fetchAppUpdate()
       if (!alive || !r?.version) return
+      try {
+        localStorage.setItem(CACHED, JSON.stringify(r))
+        localStorage.setItem(AT, String(Date.now()))
+      } catch {
+        /* ignore */
+      }
       if (isNewerVersion(r.version, APP_VERSION)) setInfo(r)
     })()
     return () => {
@@ -155,7 +178,7 @@ function AppUpdateBanner() {
       <button
         className="btn sm"
         onClick={() => {
-          sessionStorage.setItem('gzzk.appUpdate.skip', '1')
+          localStorage.setItem('gzzk.appUpdate.skip', String(Date.now()))
           setClosed(true)
         }}
       >
@@ -174,21 +197,25 @@ function AppUpdateBanner() {
   )
 }
 
+function randomSeedKey() {
+  return 'gzzk.random.seed.' + new Date().toDateString()
+}
+
 function RandomScreen() {
   const [, nav] = useRoute()
-  const ids = useMemo(() => {
-    const key = 'gzzk.random.seed.' + new Date().toDateString()
-    const saved = sessionStorage.getItem(key)
-    if (saved) return JSON.parse(saved) as string[]
-    return []
-  }, [])
-  const [qids, setQids] = useState<string[]>(ids)
+  const [round, setRound] = useState(0)
   const [items, setItems] = useState<Awaited<ReturnType<typeof loadQuestionsByIds>> | null>(null)
 
   useEffect(() => {
     let alive = true
     void (async () => {
-      let list = qids
+      const key = randomSeedKey()
+      let list: string[] = []
+      try {
+        list = JSON.parse(sessionStorage.getItem(key) ?? '[]') as string[]
+      } catch {
+        list = []
+      }
       if (!list.length) {
         const all = await loadQuestions()
         const pool = [...all]
@@ -197,8 +224,7 @@ function RandomScreen() {
           ;[pool[i], pool[j]] = [pool[j], pool[i]]
         }
         list = pool.slice(0, 10).map((q) => q.id)
-        sessionStorage.setItem('gzzk.random.seed.' + new Date().toDateString(), JSON.stringify(list))
-        if (alive) setQids(list)
+        sessionStorage.setItem(key, JSON.stringify(list))
       }
       const loaded = await loadQuestionsByIds(list)
       if (alive) setItems(loaded)
@@ -206,20 +232,21 @@ function RandomScreen() {
     return () => {
       alive = false
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+  }, [round])
 
   if (!items) return <div className="empty">正在抽题…</div>
   return (
     <QuizScreen
+      key={round}
       title="随机练 10 道"
       subtitle="各科混合"
       items={items}
       mode="practice"
       onExit={() => nav('/')}
       onRestart={() => {
-        sessionStorage.removeItem('gzzk.random.seed.' + new Date().toDateString())
-        nav('/review')
+        sessionStorage.removeItem(randomSeedKey())
+        setItems(null)
+        setRound((r) => r + 1)
       }}
     />
   )
@@ -232,6 +259,7 @@ export function App() {
   const parts = path.split('/').filter(Boolean)
 
   const isQuiz =
+    parts[0] === 'paper' ||
     parts[0] === 'practice' ||
     parts[0] === 'exam' ||
     parts[0] === 'drill' ||
@@ -255,7 +283,14 @@ export function App() {
       page = <PaperScreen pid={parts[1]} />
       break
     case 'practice':
-      page = <PracticeScreen pid={parts[1]} start={Number(params.get('start') ?? 0)} mode="practice" />
+      page = (
+        <PracticeScreen
+          pid={parts[1]}
+          start={Number(params.get('start') ?? 0)}
+          qid={params.get('qid') ?? undefined}
+          mode="practice"
+        />
+      )
       break
     case 'practice-random':
       page = <RandomScreen />
@@ -301,9 +336,11 @@ export function App() {
 
   return (
     <>
-      <NativeUpdateBanner />
-      <AppUpdateBanner />
-      <UpdateBanner />
+      <div className="updStack">
+        <NativeUpdateBanner />
+        <AppUpdateBanner />
+        <UpdateBanner />
+      </div>
       {page}
       {!isQuiz && <Nav route={path} />}
     </>

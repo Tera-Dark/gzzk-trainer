@@ -49,6 +49,14 @@ export function splitAnswer(user: string): string[] {
     .filter(Boolean)
 }
 
+/** 默写整句时学生常用「。」分隔，句子数又能和答案空数对上，就按句子拆 */
+function splitSentences(user: string): string[] {
+  return (user || '')
+    .split(/[。！？!?]+/)
+    .map((x) => x.trim())
+    .filter(Boolean)
+}
+
 export type Verdict = 'right' | 'half' | 'wrong' | 'manual'
 
 export interface BlankRow {
@@ -122,30 +130,41 @@ function verdictOf(sim: number): 'right' | 'half' | 'wrong' {
 
 export function judge(user: string, refRaw: string): JudgeResult {
   const ref = cleanRef(refRaw)
+  // 解析卷没给参考答案时没有参照可比，判“错”会误伤，直接转人工自评
+  if (!ref) {
+    return { verdict: 'manual', sim: 0, userHtml: escapeHtml(user), refHtml: '', missing: 0, extra: 0 }
+  }
   if (needsManual(ref)) {
     return { verdict: 'manual', sim: 0, userHtml: escapeHtml(user), refHtml: escapeHtml(ref), missing: 0, extra: 0 }
   }
 
   const refBlanks = splitBlanks(ref)
-  const mine = splitAnswer(user)
+  const hasMarkers = /[①②③④⑤⑥⑦⑧⑨⑩]/.test(user)
+  const sentences = splitSentences(user)
+  const mine = hasMarkers
+    ? splitBlanks(user)
+    : refBlanks.length >= 2 && sentences.length === refBlanks.length
+      ? sentences
+      : splitAnswer(user)
 
-  // 多空默写：每空去参考答案里找最接近的一条（选做题也适用）
-  if (refBlanks.length >= 2 && mine.length >= 2) {
-    const used = new Set<number>()
-    const rows: BlankRow[] = mine.map((u, i) => {
-      let best = -1
-      let bestSim = -1
-      refBlanks.forEach((r, ri) => {
-        if (used.has(ri)) return
-        const s = simOf(u, r)
-        if (s > bestSim) {
-          bestSim = s
-          best = ri
-        }
-      })
-      if (best >= 0) used.add(best)
-      const target = best >= 0 ? refBlanks[best] : ''
-      return { i, user: u, ref: target, sim: Math.max(0, bestSim), verdict: verdictOf(Math.max(0, bestSim)) }
+  if (refBlanks.length >= 2) {
+    // 空数对不上时，顺序对齐和「最近邻」都会把答案张冠李戴（例如整段默写只写了两句），
+    // 与其给出一个错误的「全错」，不如让用户对照答案自己判。
+    if (mine.length !== refBlanks.length) {
+      return {
+        verdict: 'manual',
+        sim: 0,
+        userHtml: escapeHtml(user),
+        refHtml: escapeHtml(ref),
+        missing: 0,
+        extra: 0,
+      }
+    }
+    // 多空按题面顺序逐空对照，不再跨空位做最近邻匹配
+    const rows: BlankRow[] = refBlanks.map((r, i) => {
+      const u = mine[i]
+      const s = simOf(u, r)
+      return { i, user: u, ref: r, sim: s, verdict: verdictOf(s) }
     })
     const avg = rows.reduce((x, r) => x + r.sim, 0) / rows.length
     const allRight = rows.every((r) => r.verdict === 'right')

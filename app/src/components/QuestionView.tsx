@@ -10,6 +10,11 @@ function stripLen(s: string): number {
   return (s || '').replace(/<[^>]+>/g, '').replace(/!\[[^\]]*\]\([^)]*\)/g, '图').replace(/[\s$]/g, '').length
 }
 
+/** 题干本身写明了多选（真题只说「正确的两项/不定项/双项选择」这类措辞） */
+export function looksMulti(stem: string): boolean {
+  return /正确的(两|三)项|不定项|双项选择|多项选择/.test(stem || '')
+}
+
 export function Md({ src, className }: { src: string; className?: string }) {
   const html = useMemo(() => render(fixHtml(src)), [src])
   return <div className={className ?? 'md'} dangerouslySetInnerHTML={{ __html: html }} />
@@ -64,8 +69,9 @@ export function QuestionView({
   const { q, context, paper } = item
   const answered = graded !== null
   const isChoice = q.type === 'choice' && q.options.length >= 2
-  // 多选题（“正确的两项”）答案不是一个字母，全库都没有可靠答案键，只能看完答案自己判
-  const isMulti = isChoice && !q.answerKey
+  // 只有题干写明多选、或题库标了 multi 才算多选；不能因为缺答案键就说成多选。
+  // 多选题和缺答案键的题都只能看完答案自己判。
+  const isMulti = isChoice && (q.multi === true || (!q.answerKey && looksMulti(q.stem)))
   const showAnswer = revealed || answered
   const ansRef = useRef<HTMLDivElement>(null)
   const wasRevealed = useRef(false)
@@ -144,16 +150,21 @@ export function QuestionView({
           <div
             ref={ansRef}
             className={`answerBox ${graded === 'right' ? 'good' : graded === 'wrong' ? 'bad' : ''}`}
-            style={isChoice && !q.answer ? { display: 'none' } : undefined}
           >
-            <div className="lbl">{isChoice ? (selected === q.answerKey ? '答对了' : '正确答案') : '参考答案'}</div>
+            <div className="lbl">
+              {isMulti ? '参考答案' : isChoice && selected === q.answerKey ? '答对了' : isChoice ? '正确答案' : '参考答案'}
+            </div>
             <Md
               src={
                 q.answerHtml ||
                 q.answer ||
-                (paper.answerPages?.length
-                  ? '（这道题的答案是扫描图片，请到本卷「答案解析图」里查看）'
-                  : '（本题解析卷未提供答案）')
+                (isChoice
+                  ? paper.answerPages?.length
+                    ? '（本题的答案是扫描图片，请到本卷「答案解析图」里查看；也可以看下面的解析）'
+                    : '（本题解析卷没有单独给出答案，请对照下面的解析自己判断）'
+                  : paper.answerPages?.length
+                    ? '（这道题的答案是扫描图片，请到本卷「答案解析图」里查看）'
+                    : '（本题解析卷未提供答案）')
               }
             />
           </div>
@@ -170,7 +181,11 @@ export function QuestionView({
           {!answered && (
             <div className="gradeRow">
               <div style={{ gridColumn: '1 / -1', fontSize: 12, color: 'var(--muted)' }}>
-                {isMulti ? '多选题：看看答案，自己判定' : '对照答案，自己判定'}
+                {isMulti
+                  ? '多选题：看看答案，自己判定'
+                  : isChoice && !q.answerKey
+                    ? '本题缺答案键：对照解析自己判定'
+                    : '对照答案，自己判定'}
               </div>
               <button className="btn" onClick={() => onGrade('right')}>
                 <span style={{ color: 'var(--ok)', fontWeight: 700 }}>我做对了</span>

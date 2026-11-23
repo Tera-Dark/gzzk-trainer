@@ -6,24 +6,81 @@ import { QuestionView } from '../components/QuestionView'
 import * as db from '../lib/db'
 import { fmtDur, go, Sheet, Stat } from '../ui'
 
-type Phase = 'running' | 'grade' | 'result' | 'review'
+type Phase = 'intro' | 'running' | 'grade' | 'result' | 'review'
+type QItem = Paper['questions'][number]
+
+const DRAFT_PREFIX = 'gzzk.examDraft.'
+
+interface ExamDraft {
+  answers: Record<string, string>
+  selfEval: Record<string, Grade>
+  idx: number
+  startedAt: number
+  endAt: number
+  revealed: string[]
+}
+
+function readDraft(pid: string): ExamDraft | null {
+  try {
+    const raw = localStorage.getItem(DRAFT_PREFIX + pid)
+    if (!raw) return null
+    const d = JSON.parse(raw) as ExamDraft
+    if (!d || typeof d.endAt !== 'number' || typeof d.startedAt !== 'number') return null
+    return {
+      ...d,
+      answers: d.answers ?? {},
+      selfEval: d.selfEval ?? {},
+      revealed: d.revealed ?? [],
+      idx: d.idx ?? 0,
+    }
+  } catch {
+    return null
+  }
+}
+
+function writeDraft(pid: string, d: ExamDraft) {
+  try {
+    localStorage.setItem(DRAFT_PREFIX + pid, JSON.stringify(d))
+  } catch {
+    /* 容量不足时放弃暂存，不影响作答 */
+  }
+}
+
+function clearDraft(pid: string) {
+  try {
+    localStorage.removeItem(DRAFT_PREFIX + pid)
+  } catch {
+    /* ignore */
+  }
+}
 
 export function ExamScreen({ paper, onExit }: { paper: Paper; onExit: () => void }) {
-  const [phase, setPhase] = useState<Phase>('running')
-  const [idx, setIdx] = useState(0)
-  const [answers, setAnswers] = useState<Record<string, string>>({})
-  const [selfEval, setSelfEval] = useState<Record<string, Grade>>({})
+  const [draft] = useState(() => readDraft(paper.id))
+  const [phase, setPhase] = useState<Phase>('intro')
+  const [idx, setIdx] = useState(() => Math.min(draft?.idx ?? 0, Math.max(0, paper.questions.length - 1)))
+  const [answers, setAnswers] = useState<Record<string, string>>(() => draft?.answers ?? {})
+  const [selfEval, setSelfEval] = useState<Record<string, Grade>>(() => draft?.selfEval ?? {})
   const [showPalette, setShowPalette] = useState(false)
   const [showConfirm, setShowConfirm] = useState(false)
-  const [elapsed, setElapsed] = useState(0)
+  const [showExit, setShowExit] = useState(false)
+  const [elapsed, setElapsed] = useState(() => (draft ? Date.now() - draft.startedAt : 0))
   const [result, setResult] = useState<{ score: number; total: number; right: number; half: number; wrong: number; skip: number } | null>(null)
-  const endAt = useRef(Date.now() + paper.durationMin * 60000)
-  const startedAt = useRef(Date.now())
+  const endAt = useRef(draft?.endAt ?? Date.now() + paper.durationMin * 60000)
+  const startedAt = useRef(draft?.startedAt ?? Date.now())
   const submitted = useRef(false)
+  const revealedIds = useRef(new Set<string>(draft?.revealed ?? []))
 
   const qs = paper.questions
   const q = qs[idx]
   const totalScore = paper.fullScore || qs.reduce((s, x) => s + (x.score ?? 0), 0) || 100
+
+  const gradeOf = (item: QItem): Grade => {
+    const picked = answers[item.id]
+    const isChoice = item.type === 'choice' && item.options.length >= 2 && !!item.answerKey
+    if (isChoice) return picked === item.answerKey ? 'right' : picked ? 'wrong' : 'skip'
+    if (selfEval[item.id]) return selfEval[item.id]
+    return picked || revealedIds.current.has(item.id) ? 'half' : 'skip'
+  }
 
   const submit = useCallback(
     (auto = false) => {
@@ -37,12 +94,7 @@ export function ExamScreen({ paper, onExit }: { paper: Paper; onExit: () => void
       let skip = 0
       const per = totalScore / Math.max(1, qs.length)
       for (const item of qs) {
-        const picked = answers[item.id]
-        const isChoice = item.type === 'choice' && item.options.length >= 2 && item.answerKey
-        let grade: Grade
-        if (isChoice) grade = picked === item.answerKey ? 'right' : picked ? 'wrong' : 'skip'
-        else if (selfEval[item.id]) grade = selfEval[item.id]
-        else grade = picked || revealedIds.current.has(item.id) ? 'half' : 'skip'
+        const grade = gradeOf(item)
         const w = item.score ?? per
         if (grade === 'right') {
           score += w
@@ -52,7 +104,8 @@ export function ExamScreen({ paper, onExit }: { paper: Paper; onExit: () => void
           half += 1
         } else if (grade === 'wrong') wrong += 1
         else skip += 1
-        db.record(item.id, paper.subject, paper.id, grade, 'exam', undefined, item.tags?.[0])
+        // 跳过不等于做错：不写做题记录，也不建复习卡片
+        if (grade !== 'skip') db.record(item.id, paper.subject, paper.id, grade, 'exam', undefined, item.tags?.[0])
       }
       const final = Math.round(score * 10) / 10
       setResult({ score: final, total: totalScore, right, half, wrong, skip })
@@ -68,6 +121,7 @@ export function ExamScreen({ paper, onExit }: { paper: Paper; onExit: () => void
         halfCount: half,
         ms,
       })
+      clearDraft(paper.id)
       setPhase('result')
       if (auto) setShowConfirm(false)
     },
@@ -75,7 +129,44 @@ export function ExamScreen({ paper, onExit }: { paper: Paper; onExit: () => void
     [answers, selfEval, qs, totalScore, paper.id, paper.subject]
   )
 
-  const revealedIds = useRef(new Set<string>())
+  // 作答过程中随时暂存，中途退出/切后台/误触返回都不会白做
+  useEffect(() => {
+    if (phase !== 'running' && phase !== 'grade') return
+    writeDraft(paper.id, {
+      answers,
+      selfEval,
+      idx,
+      startedAt: startedAt.current,
+      endAt: endAt.current,
+      revealed: Array.from(revealedIds.current),
+    })
+  }, [answers, selfEval, idx, phase, paper.id])
+
+  const saveNow = () => {
+    writeDraft(paper.id, {
+      answers,
+      selfEval,
+      idx,
+      startedAt: startedAt.current,
+      endAt: endAt.current,
+      revealed: Array.from(revealedIds.current),
+    })
+  }
+
+  const startFresh = () => {
+    submitted.current = false
+    setAnswers({})
+    setSelfEval({})
+    setIdx(0)
+    setResult(null)
+    revealedIds.current.clear()
+    startedAt.current = Date.now()
+    endAt.current = Date.now() + paper.durationMin * 60000
+    clearDraft(paper.id)
+    setPhase('running')
+  }
+
+  const resume = () => setPhase('running')
 
   useEffect(() => {
     if (phase !== 'running') return
@@ -97,11 +188,61 @@ export function ExamScreen({ paper, onExit }: { paper: Paper; onExit: () => void
   const left = Math.max(0, endAt.current - Date.now())
   const answeredCount = qs.filter((x) => (x.type === 'choice' ? answers[x.id] : revealedIds.current.has(x.id))).length
 
+  if (phase === 'intro') {
+    const resumable = !!draft && left > 0
+    return (
+      <div className="app noNav">
+        <div className="pageHead">
+          <button className="iconBtn" onClick={onExit} aria-label="返回">
+            ‹
+          </button>
+          <div>
+            <h1 style={{ fontSize: 19 }}>{paper.title}</h1>
+            <div className="sub">整卷模考</div>
+          </div>
+        </div>
+
+        <div className="card">
+          <div className="statRow">
+            <Stat v={qs.length} k="题数" />
+            <Stat v={paper.fullScore} k="满分" />
+            <Stat v={paper.durationMin} k="分钟" />
+          </div>
+        </div>
+
+        <div className="card tight">
+          <div style={{ fontSize: 13, color: 'var(--text2)', lineHeight: 1.85 }}>
+            开始后按真实时长倒计时。选择题交卷时自动判，非选择题对照解析自评（半对按 50% 计分）。
+            <br />
+            中途退出会自动保留答案，下次可接着做；<b>计时不会暂停</b>。
+          </div>
+        </div>
+
+        {resumable && (
+          <button className="btn wide primary" style={{ marginTop: 12 }} onClick={resume}>
+            继续上次模考（剩 {fmtDur(left)}）
+          </button>
+        )}
+        <button
+          className={`btn wide ${resumable ? '' : 'primary'}`}
+          style={{ marginTop: resumable ? 8 : 12 }}
+          onClick={startFresh}
+        >
+          {resumable ? '重新开始（清空上次答案）' : '开始计时'}
+        </button>
+        {draft && left <= 0 && (
+          <div className="tiny muted center" style={{ marginTop: 8 }}>
+            上次模考已超时，只能重新开始。
+          </div>
+        )}
+      </div>
+    )
+  }
+
   if (phase === 'result' && result) {
     const wrongQs = qs.filter((x) => {
-      const picked = answers[x.id]
-      if (x.type === 'choice' && x.answerKey) return picked !== x.answerKey
-      return (selfEval[x.id] ?? 'half') !== 'right'
+      const g = gradeOf(x)
+      return g === 'wrong' || g === 'half'
     })
     return (
       <div className="app noNav">
@@ -160,7 +301,7 @@ export function ExamScreen({ paper, onExit }: { paper: Paper; onExit: () => void
             <button
               className="btn wide primary"
               style={{ marginTop: 10 }}
-              onClick={() => go(`/drill/${paper.id}?ids=${wrongQs.map((x) => x.no).join(',')}`)}
+              onClick={() => go(`/drill/${paper.id}?qids=${wrongQs.map((x) => x.id).join(',')}`)}
             >
               重做这些错题
             </button>
@@ -304,7 +445,7 @@ export function ExamScreen({ paper, onExit }: { paper: Paper; onExit: () => void
     <div className="app noNav">
       <div className="quizTop">
         <div className="line1">
-          <button className="iconBtn" onClick={onExit} aria-label="退出">
+          <button className="iconBtn" onClick={() => setShowExit(true)} aria-label="退出模考">
             <svg width="14" height="14" viewBox="0 0 14 14" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round">
               <path d="M2 2l10 10M12 2L2 12" />
             </svg>
@@ -394,6 +535,29 @@ export function ExamScreen({ paper, onExit }: { paper: Paper; onExit: () => void
             </button>
             <button className="btn primary" style={{ flex: 1 }} onClick={goGrade}>
               交卷
+            </button>
+          </div>
+        </Sheet>
+      )}
+
+      {showExit && (
+        <Sheet title="退出模考？" onClose={() => setShowExit(false)}>
+          <div style={{ fontSize: 14, color: 'var(--text2)', lineHeight: 1.8 }}>
+            已答 <b>{answeredCount}</b>/{qs.length} 题。退出后答案会保存在本机，下次可以接着做，但<b>计时不会暂停</b>。
+          </div>
+          <div style={{ display: 'flex', gap: 10, marginTop: 16 }}>
+            <button className="btn" style={{ flex: 1 }} onClick={() => setShowExit(false)}>
+              继续答题
+            </button>
+            <button
+              className="btn primary"
+              style={{ flex: 1 }}
+              onClick={() => {
+                saveNow()
+                onExit()
+              }}
+            >
+              退出并保存
             </button>
           </div>
         </Sheet>

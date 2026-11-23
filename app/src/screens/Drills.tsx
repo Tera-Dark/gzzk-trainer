@@ -23,8 +23,9 @@ function useAsync<T>(fn: () => Promise<T>, deps: unknown[]): T | null {
 
 export function ReviewScreen() {
   const [, nav] = useRoute()
-  const ids = useMemo(() => db.dueIds(), [])
-  const items = useAsync(() => loadQuestionsByIds(ids), [])
+  const [round, setRound] = useState(0)
+  const ids = useMemo(() => db.dueIds(), [round])
+  const items = useAsync(() => loadQuestionsByIds(ids), [ids.join(','), round])
   if (!items) return <div className="empty">加载复习卡片…</div>
   if (items.length === 0) {
     return (
@@ -38,7 +39,7 @@ export function ReviewScreen() {
         <div className="empty">
           今天没有到期的复习卡片。
           <br />
-          做错的题会在 1 / 2 / 4 / 7 / 15 天后自动回到这里。
+          做错的题会按 1 / 2 / 4 / 7 / 15 / 30 / 60 天自动回到这里。
         </div>
         <button className="btn wide primary" onClick={() => nav('/practice-random')}>
           随机练 10 道
@@ -48,12 +49,13 @@ export function ReviewScreen() {
   }
   return (
     <QuizScreen
+      key={round}
       title="今日复习"
       subtitle={`${items.length} 张到期卡片`}
       items={items}
       mode="review"
       onExit={() => nav('/')}
-      onRestart={() => nav('/review')}
+      onRestart={() => setRound((r) => r + 1)}
     />
   )
 }
@@ -93,27 +95,21 @@ export function DrillScreen({ pid, nos, qids }: { pid?: string; nos?: string; qi
 
 export function TagScreen({ subject, tag }: { subject: Subject; tag: string }) {
   const [, nav] = useRoute()
+  const [round, setRound] = useState(0)
   const flat = useAsync(loadQuestions, [])
   const index = useAsync(loadIndex, [])
-  const papers = useAsync(async () => {
-    const idx = await loadIndex()
-    const list = idx.filter((p) => p.subject === subject)
-    const loaded = await Promise.all(list.map((p) => loadPaper(p.id)))
-    return loaded
-  }, [subject])
+  // 只用题库索引挑出本考点的题，再按需加载涉及的卷子，不再把整科卷子全拉一遍
+  const ids = useMemo(() => {
+    if (!flat || !index) return []
+    const live = new Set(index.map((p) => p.id))
+    return flat
+      .filter((q) => q.s === subject && q.g?.includes(tag) && live.has(q.p))
+      .sort((a, b) => b.y - a.y)
+      .map((q) => q.id)
+  }, [flat, index, subject, tag])
+  const items = useAsync(() => (ids.length ? loadQuestionsByIds(ids) : Promise.resolve([])), [ids.join(',')])
 
-  const items = useMemo(() => {
-    if (!papers) return []
-    const out: { q: (typeof papers)[number]['questions'][number]; paper: (typeof papers)[number] }[] = []
-    for (const p of papers) {
-      for (const q of p.questions) {
-        if ((q.tags ?? []).includes(tag)) out.push({ q, paper: p })
-      }
-    }
-    return out.sort((a, b) => b.paper.year - a.paper.year)
-  }, [papers])
-
-  if (!papers || !flat || !index) return <div className="empty">加载专项题目…</div>
+  if (!flat || !index || !items) return <div className="empty">加载专项题目…</div>
   if (items.length === 0) {
     return (
       <div className="app noNav">
@@ -126,12 +122,13 @@ export function TagScreen({ subject, tag }: { subject: Subject; tag: string }) {
   }
   return (
     <QuizScreen
+      key={round}
       title={`${subjectName(subject)} · ${tag}`}
-      subtitle={`近 10 年 ${items.length} 道`}
+      subtitle={`共 ${items.length} 道`}
       items={items.map((x) => ({ q: x.q, paper: x.paper, context: x.q.contextId ? x.paper.contexts.find((c) => c.id === x.q.contextId) : undefined }))}
       mode="practice"
       onExit={() => nav(`/subject/${subject}`)}
-      onRestart={() => nav(`/tag/${subject}/${encodeURIComponent(tag)}`)}
+      onRestart={() => setRound((r) => r + 1)}
     />
   )
 }
@@ -269,7 +266,7 @@ export function MistakesScreen() {
 
 export function StatsScreen() {
   const state = useDB()
-  const flat = useAsync(loadQuestions, [])
+  const index = useAsync(loadIndex, [])
   const [range, setRange] = useState<'all' | '30' | '7'>('all')
 
   const since = range === 'all' ? 0 : Date.now() - Number(range) * 86400000
@@ -386,7 +383,7 @@ export function StatsScreen() {
         <div className="cardTitle">分科掌握</div>
         {SUBJECTS.map((s) => {
           const st = db.subjectStats(s.key)
-          const count = (flat ?? []).filter((q) => q.s === s.key).length
+          const count = (index ?? []).filter((p) => p.subject === s.key).reduce((n, p) => n + p.count, 0)
           return (
             <div className="tagRow" key={s.key}>
               <span className="dot" style={{ background: s.color }} />

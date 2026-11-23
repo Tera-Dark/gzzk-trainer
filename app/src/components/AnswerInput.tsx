@@ -198,7 +198,8 @@ export function AnswerInput({
                     {res.verdict === 'right' && '✓ 基本写对了'}
                     {res.verdict === 'half' && '△ 写对了一部分'}
                     {res.verdict === 'wrong' && '✗ 和答案差得比较多'}
-                    {res.verdict === 'manual' && '这道题要自己对照（答案较长或含公式图）'}
+                    {res.verdict === 'manual' &&
+                      (ref ? '请对照答案自己判定（空位对不上、答案较长或含公式图）' : '本题解析卷没有参考答案，请看完解析自己判定')}
                     {res.verdict !== 'manual' && (
                       <span className="tiny sim"> 吻合度 {Math.round(res.sim * 100)}%</span>
                     )}
@@ -233,9 +234,12 @@ export function AnswerInput({
                   </div>
                 </>
               )}
-              {res.verdict === 'manual' && (
-                <div className="md" dangerouslySetInnerHTML={{ __html: render(fixHtml(q.answerHtml || q.answer || '')) }} />
-              )}
+              {res.verdict === 'manual' &&
+                (q.answerHtml || q.answer ? (
+                  <div className="md" dangerouslySetInnerHTML={{ __html: render(fixHtml(q.answerHtml || q.answer || '')) }} />
+                ) : (
+                  <div className="tiny muted">对照下方的解析，自己判断这道题写没写对。</div>
+                ))}
               <div className="selfRow">
                 <span className="tiny muted">自己判：</span>
                 <button
