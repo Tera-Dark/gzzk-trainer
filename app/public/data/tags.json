@@ -134,7 +134,7 @@
  "english": [
   {
    "name": "阅读理解",
-   "count": 113
+   "count": 114
   },
   {
    "name": "完形填空",
@@ -142,19 +142,19 @@
   },
   {
    "name": "语法选择",
-   "count": 46
+   "count": 45
   },
   {
    "name": "书面表达",
-   "count": 29
-  },
-  {
-   "name": "介词连词冠词",
-   "count": 25
+   "count": 31
   },
   {
    "name": "词汇辨析",
-   "count": 24
+   "count": 26
+  },
+  {
+   "name": "介词连词冠词",
+   "count": 26
   },
   {
    "name": "时态",
@@ -166,19 +166,19 @@
   },
   {
    "name": "从句",
-   "count": 19
+   "count": 18
   },
   {
    "name": "被动语态",
    "count": 7
   },
   {
-   "name": "单词拼写",
-   "count": 3
+   "name": "句型转换",
+   "count": 1
   },
   {
-   "name": "句型转换",
-   "count": 2
+   "name": "单词拼写",
+   "count": 1
   }
  ],
  "history": [

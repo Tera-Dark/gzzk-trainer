@@ -413,6 +413,243 @@ def mark_incomplete(papers: list[dict]) -> list[str]:
     return flagged
 
 
+# ---------- 抽取残渣修复（只做确定性变换，不猜内容） ----------
+
+# 解析卷的「答案：/解析：」整块被粘进选项（英语阅读最常）
+LEAK_CUT = re.compile(r"\n[ \t]*(?:【?\s*(?:答案|解析|解答)\s*】?)\s*[:：]")
+# 选项里被吞掉的其它选项：「\nE. …」或原卷把 D 写成「4.  …」
+OPT_MARK = re.compile(r"\n[ \t]*(?:([A-F])\s*[.．、]|([1-6])[.．][ \t]+)")
+# 选项尾部吞进去的后续小问（「（2）…」）、下一大题标题、下一语段
+TAIL_PAT = re.compile(
+    r"\n{2,}\s*(?=[（(]\d{1,2}[）)]|[一二三四五六七八九十]+\s*、|第[一二三]部分|\\\([A-Da-d]\\\)|\|)"
+)
+# 只有「（2）…」这种同题小问才还给题干，大题标题/下一语段直接丢掉
+SUBQ_START = re.compile(r"^[（(]\d{1,2}[）)]")
+# 整卷答案表：「26-30 BBCCA」
+ANSWER_TABLE = re.compile(r"(?<!\d)(\d{1,2})\s*[-－—~～]\s*(\d{1,2})\s*[：:]?\s*([A-F]{2,})(?![A-Za-z])")
+# 逐题答案块：「41. C 42. C …」
+ANSWER_PAIR = re.compile(r"(?<!\d)(\d{1,2})\s*[.．、:：]\s*([A-F])(?![A-Za-z\u4e00-\u9fff])")
+# Word 表格/段落标签残渣（英语阅读的选项是从表格格里抽出来的）
+TAG_RESIDUE = re.compile(
+    r"</?(?:tbody|thead|tfoot|caption|colgroup|col|td|th|tr|table|blockquote|p|span|div|o:p)\b[^>]*>",
+    re.I,
+)
+JIEDA = re.compile(r"【(?:解答|详解)】")
+JIEDA_TAIL = re.compile(r"【(?:点评|点睛|考点)】")
+PAYLOAD = re.compile(r"故(?:答案|填)\s*(?:为|是)?\s*[:：]\s*")
+MARKS = "①②③④⑤⑥⑦⑧⑨⑩"
+
+
+def clean_option_text(v: str) -> str:
+    """去掉选项里的表格/段落标签残渣，只留下题目本身要显示的词句"""
+    if not v:
+        return v
+    v = TAG_RESIDUE.sub("\n", v)
+    lines = []
+    for ln in v.split("\n"):
+        ln = ln.strip().strip("|").strip()
+        if ln and not re.fullmatch(r"[-—:：\s]+", ln):
+            lines.append(ln)
+    v = "\n".join(lines)
+    v = strip_empty_tables(v)
+    return re.sub(r"\n{2,}", "\n", v).strip()
+
+
+def fix_options(q: dict, other_stems: list[str]) -> tuple[int, str]:
+    """选项修复：切掉粘进来的答案块、拆回被吞的其它选项、把后续小问还给题干。
+
+    返回（是否改动，切出来的答案块原文）。
+    """
+    if q.get("type") != "choice":
+        return 0, ""
+    opts = q.get("options") or []
+    if len(opts) < 2:
+        return 0, ""
+    original = [
+        {"k": o.get("k"), "md": o.get("md") or "", "html": o.get("html") or ""} for o in opts
+    ]
+
+    # ① 先切掉粘在选项尾部的整块答案，记下最早出现的位置：
+    #    排在它后面的选项都是别的语段的，属于漏抽，一并丢掉
+    leak_from = len(opts)
+    leak_text = ""
+    for i, o in enumerate(opts):
+        v = o.get("md") or ""
+        m = LEAK_CUT.search(v)
+        if not m:
+            continue
+        leak_text += "\n\n" + v[m.end():]
+        o["md"] = v[: m.start()].rstrip()
+        o["html"] = o["md"]
+        leak_from = min(leak_from, i)
+
+    # ② 拆回被吞掉的其它选项
+    chunks: list[tuple[str, str, int]] = []
+    for i, o in enumerate(opts):
+        md = (o.get("md") or "").strip()
+        if not md:
+            continue
+        own = (o.get("k") or "").strip().upper()
+        marks = [
+            (m.start(), m.end(), m.group(1) or "ABCDEFGH"[int(m.group(2)) - 1])
+            for m in OPT_MARK.finditer(md)
+        ]
+        cursor = 0
+        bounds = marks + [(len(md), len(md), "")]
+        for k, (start, end, letter) in enumerate(bounds):
+            text = md[cursor:start].strip()
+            tag = own if k == 0 else bounds[k - 1][2]
+            if text:
+                chunks.append((tag, text, i))
+            cursor = end
+
+    # ③ 尾部的后续小问先摘出来，稍后还给题干
+    keep: list[tuple[str, str, int]] = []
+    tails: list[str] = []
+    for tag, text, src in chunks:
+        m = TAIL_PAT.search(text)
+        if m:
+            rest = text[m.start() :].strip()
+            text = text[: m.start()].strip()
+            # 只有同一题、长度正常的「（2）…」才还给题干；
+            # 大题标题、下一语段、表格残渣、网站水印一律不要
+            if (
+                SUBQ_START.match(rest)
+                and len(rest) <= 320
+                and not re.search(
+                    r"</?t(?:able|body|head|r|d|h)|zxxk|教育资源|中考[化数语英物历政]试卷|第[一二三]卷",
+                    rest,
+                    re.I,
+                )
+            ):
+                tails.append(clean_option_text(rest))
+        text = clean_option_text(text)
+        if text:
+            keep.append((tag, text, src))
+
+    keep = [c for c in keep if c[2] <= leak_from]
+    if len(keep) < 2:
+        q["options"] = original
+        return 0, leak_text
+
+    q["options"] = [{"k": "ABCDEF"[i], "md": t, "html": t} for i, (_, t, _) in enumerate(keep[:6])]
+
+    # ④ 后续小问补回题干：别的地方已经有同一段就不再重复
+    for t in tails:
+        probe = re.sub(r"\s+", "", t)[:24]
+        if not probe or any(probe in s for s in other_stems):
+            continue
+        q["stem"] = ((q.get("stem") or "").rstrip() + "\n\n" + t).strip()
+        if q.get("stemHtml"):
+            q["stemHtml"] = ((q.get("stemHtml") or "").rstrip() + "\n\n" + t).strip()
+
+    changed = q["options"] != original
+    return (1 if changed else 0), leak_text
+
+
+def paper_answer_map(paper: dict) -> tuple[dict[int, str], set[int]]:
+    """从整卷文字里找答案表，得到「题号 → 答案字母」。
+
+    「26-30 BBCCA」这种区间表可靠，直接采信；「41. C 42. C …」这种逐题编号
+    要求连续三题以上才认，免得把题内的小问序号当成题号。
+    """
+    texts: list[str] = []
+    for q in paper["questions"]:
+        texts.append(q.get("answer") or "")
+        texts.append(q.get("analysis") or "")
+        for o in q.get("options") or []:
+            texts.append(o.get("md") or "")
+    blob = "\n".join(texts)
+
+    found: dict[int, str] = {}
+    strong: set[int] = set()
+    for m in ANSWER_TABLE.finditer(blob):
+        a, b, letters = int(m.group(1)), int(m.group(2)), m.group(3)
+        if b >= a and b - a + 1 == len(letters):
+            for i, ch in enumerate(letters):
+                found[a + i] = ch
+                strong.add(a + i)
+
+    pairs: dict[int, str] = {}
+    for m in ANSWER_PAIR.finditer(blob):
+        pairs.setdefault(int(m.group(1)), m.group(2))
+    nums = sorted(pairs)
+    i = 0
+    while i < len(nums):
+        j = i
+        while j + 1 < len(nums) and nums[j + 1] == nums[j] + 1:
+            j += 1
+        if j - i + 1 >= 3:
+            for n in nums[i : j + 1]:
+                found.setdefault(n, pairs[n])
+        i = j + 1
+    return found, strong
+
+
+def apply_answer_map(q: dict, amap: dict[int, str], strong: set[int]) -> int:
+    """用整卷答案表校正选择题答案键；答案字段是整卷答案块时收敛成本题答案"""
+    if q.get("type") != "choice" or not amap:
+        return 0
+    no = q.get("no")
+    if no not in amap:
+        return 0
+    head = re.sub(r"<[^>]+>", "", q.get("stem") or "")[:200]
+    if MULTI_PAT.search(head):
+        return 0
+    new = amap[no]
+    cur = (q.get("answerKey") or "").strip().upper()
+    if cur and cur != new and no not in strong:
+        return 0
+    q["answerKey"] = new
+    a = q.get("answer") or ""
+    if len(ANSWER_PAIR.findall(a)) >= 2 or len(a) > 40:
+        q["answer"] = new
+        q["answerHtml"] = new
+    return 1
+
+
+def recover_answer(q: dict) -> int:
+    """解析里有【解答】但答案是空的：把解答拆成参考答案，解析只留分析部分"""
+    if q.get("type") == "choice":
+        return 0
+    if q.get("answer") or q.get("answerHtml") or q.get("answerKey"):
+        return 0
+    text = q.get("analysis") or ""
+    m = JIEDA.search(text)
+    if not m:
+        return 0
+    body = text[m.end() :]
+    tail = ""
+    t = JIEDA_TAIL.search(body)
+    if t:
+        tail = body[t.start() :].strip()
+        body = body[: t.start()]
+    body = re.sub(r"^\s*解\s*[:：]\s*", "", body.strip()).strip()
+    if not body:
+        return 0
+
+    payloads = []
+    for seg in re.split(r"(?<=[；;。])", body):
+        pm = PAYLOAD.search(seg)
+        if not pm:
+            continue
+        # 只取到本句结束：再往后就是下一小问的讲解，混进来会误导对照
+        v = re.split(r"[；;。．]|\n{2,}", seg[pm.end() :], maxsplit=1)[0].strip()
+        if v:
+            payloads.append(v)
+    if 2 <= len(payloads) <= 10 and len("".join(payloads)) <= 400:
+        # 多空答案用 ①②③ 串起来：前端按标记逐空对照
+        q["answer"] = " ".join(MARKS[i] + v for i, v in enumerate(payloads))
+    else:
+        q["answer"] = body if len(body) <= 800 else body[:800].rstrip() + "…"
+
+    head = text[: m.start()].strip()
+    q["analysis"] = "\n\n".join(x for x in (head, tail) if x)
+    if q.get("analysisHtml"):
+        q["analysisHtml"] = q["analysis"]
+    return 1
+
+
 def main() -> None:
     files = sorted(p for p in DATA.glob("*.json") if p.name not in ("index.json", "questions.json", "tags.json", "version.json"))
     papers = [json.loads(f.read_text(encoding="utf-8")) for f in files]
@@ -420,9 +657,26 @@ def main() -> None:
     for paper in papers:
         dropped += drop_junk(paper)
     flagged = mark_incomplete(papers)
+
+    # 抽取残渣修复：选项拆分 / 答案块回收 / 答案键校正（要在写 index 之前）
+    fixed_opts = 0
+    tuned_keys = 0
+    for paper in papers:
+        amap, strong = paper_answer_map(paper)
+        stems = [re.sub(r"\s+", "", q.get("stem") or "") for q in paper["questions"]]
+        for k, q in enumerate(paper["questions"]):
+            others = stems[:k] + stems[k + 1 :]
+            changed, leak = fix_options(q, others)
+            fixed_opts += changed
+            if leak and not q.get("analysis"):
+                q["analysis"] = leak.strip()
+                q["analysisHtml"] = q["analysis"]
+            tuned_keys += apply_answer_map(q, amap, strong)
+
     flat = []
     tag_counter: dict[str, Counter] = defaultdict(Counter)
     leaks = 0
+    recovered = 0
     for f, paper in zip(files, papers):
         subject = paper["subject"]
         canon = CANON.get(subject, set())
@@ -441,6 +695,8 @@ def main() -> None:
             repair_answer_key(q)
             mark_multi(q)
             q["tags"] = tags_for(q, subject)
+            # 标签已按原解析算好，之后再拆答案不会影响考点
+            recovered += recover_answer(q)
             for fld in ("analysis", "analysisHtml"):
                 if q.get(fld):
                     q[fld] = re.sub(r"^\s*【解析】\s*", "", q[fld])
@@ -464,17 +720,15 @@ def main() -> None:
             )
         f.write_text(json.dumps(paper, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
 
-    tags = {s: [{"name": n, "count": c} for n, c in c.most_common()] for s, c in tag_counter.items()}
-    (DATA / "questions.json").write_text(json.dumps({"questions": flat}, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
-    (DATA / "tags.json").write_text(json.dumps(tags, ensure_ascii=False, indent=1), encoding="utf-8")
-
     # 试卷索引重算（以实际文件为准）
     index = {"papers": []}
     skipped = []
+    skipped_ids: set[str] = set()
     for p in sorted(papers, key=lambda x: (x["subject"], -x["year"])):
         answered = sum(1 for q in p["questions"] if q["answer"] or q["analysis"])
         if len(p["questions"]) < 8 or (answered == 0 and not p.get("answerPages")):
             skipped.append(f'{p["id"]}({len(p["questions"])}题/{answered}答案)')
+            skipped_ids.add(p["id"])
             continue
         kinds = Counter(q["type"] for q in p["questions"])
         index["papers"].append(
@@ -499,8 +753,28 @@ def main() -> None:
             }
         )
     (DATA / "index.json").write_text(json.dumps(index, ensure_ascii=False, indent=1), encoding="utf-8")
+
+    # 被跳过的残卷连文件一起清掉：题目太少或整卷没答案，留着只会变成索引里的孤儿题
+    for pid in skipped_ids:
+        f = DATA / f"{pid}.json"
+        if f.exists():
+            f.unlink()
+
+    # questions.json / tags.json 只放能练的卷子：被跳过的残卷不放进去，
+    # 否则「随机练」和考点页会抽到索引里根本没有的孤儿题
+    if skipped_ids:
+        flat = [x for x in flat if x["p"] not in skipped_ids]
+        tag_counter = defaultdict(Counter)
+        for x in flat:
+            for t in x["g"]:
+                if t in CANON.get(x["s"], set()):
+                    tag_counter[x["s"]][t] += 1
+    tags = {s: [{"name": n, "count": c} for n, c in c.most_common()] for s, c in tag_counter.items()}
+    (DATA / "questions.json").write_text(json.dumps({"questions": flat}, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
+    (DATA / "tags.json").write_text(json.dumps(tags, ensure_ascii=False, indent=1), encoding="utf-8")
     print(f"papers={len(index['papers'])}/{len(papers)} questions={len(flat)}")
     print(f"  擦掉题干/材料里的答案泄露 {leaks} 处")
+    print(f"  选项拆分修复 {fixed_opts} 题，答案键校正 {tuned_keys} 题，从解析里补回答案 {recovered} 题")
     if dropped:
         print(f"  丢掉抽取残渣 {len(dropped)} 条:", "，".join(dropped))
     if flagged:
